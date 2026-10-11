@@ -1,5 +1,6 @@
 #import <Foundation/NSObject.h>
 #import <Foundation/NSDate.h>
+#import <Foundation/NSDictionary.h>
 
 enum {
     NSWindowsNTOperatingSystem = 1,
@@ -31,14 +32,13 @@ NSOperatingSystemVersion;
     NSInteger automaticTerminationOptOutCounter;
 }
 
-+ (NSProcessInfo *)processInfo;
+@property (class, readonly, retain) NSProcessInfo *processInfo;
 
-- (NSDictionary *)environment;
+@property (readonly, copy) NSDictionary<NSString *, NSString *> *environment;
 - (NSArray *)arguments;
 - (NSString *)hostName;
-- (NSString *)processName;
+@property (copy) NSString *processName;
 - (int)processIdentifier;
-- (void)setProcessName:(NSString *)newName;
 - (NSString *)globallyUniqueString;
 - (NSUInteger)operatingSystem;
 - (NSString *)operatingSystemName;
@@ -50,6 +50,11 @@ NSOperatingSystemVersion;
 - (NSOperatingSystemVersion)operatingSystemVersion;
 - (BOOL)isOperatingSystemAtLeastVersion:(NSOperatingSystemVersion)version;
 
+@end
+
+@interface NSProcessInfo (NSSuddenTermination)
+- (void)enableSuddenTermination;
+- (void)disableSuddenTermination;
 @end
 
 @interface NSProcessInfo (NSProcessInfoPlatform)
