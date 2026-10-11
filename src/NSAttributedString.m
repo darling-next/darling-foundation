@@ -11,6 +11,16 @@
 #import <Foundation/NSPortCoder.h>
 #import <dispatch/dispatch.h>
 
+// Darling's Foundation did not define this attribute name.  The Foundation
+// overlay's AttributeScopes uses it, and the declaration comes with the
+// framework's headers (NSAttributedString.h, NSInlinePresentationIntentAttributeName),
+// so the definition is what was missing: measured as
+// "_NSInlinePresentationIntentAttributeName, referenced from
+//  _$s10Foundation15AttributeScopesO0A10AttributesV024InlinePresentationIntentB0O4name_WZ".
+// The same line and value as VibeDarling/darling-foundation's
+// src/NSAttributedString.m:19.
+NSAttributedStringKey const NSInlinePresentationIntentAttributeName = @"NSInlinePresentationIntent";
+
 @implementation NSAttributedString
 
 @end

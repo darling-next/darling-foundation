@@ -134,6 +134,7 @@ set(foundation_sources
 	src/NSOrthography.m
 	src/NSPathStore.m
 	src/NSPathUtilities.m
+	src/NSPersonNameComponents.m
 	src/NSPhoneNumberCheckingResult.m
 
 	src/NSPlatform_Apportable.m  # unrelated

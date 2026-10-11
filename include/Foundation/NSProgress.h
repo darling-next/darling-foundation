@@ -25,6 +25,12 @@ NS_ASSUME_NONNULL_BEGIN
     NSProgressFraction _selfFraction;
     NSProgressFraction _childFraction;
     int64_t _portionOfParent;
+    // The pre-adoption header declared these two ivars; the adopted one left the
+    // counters as plain @property.  NSProgress.m implements both accessors by
+    // hand and the target builds for i386 as well, where ivars cannot be added
+    // from a class extension - so they belong in the public ivar block, as before.
+    int64_t _completedUnitCount;
+    int64_t _totalUnitCount;
     NSMutableDictionary *_userInfo;
     NSProgressKind _kind;
     NSString *_localizedDescription;

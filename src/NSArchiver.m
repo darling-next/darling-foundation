@@ -107,7 +107,9 @@ static NSMutableDictionary *encodedClassNames = nil;
 {
     if (mdata != NULL)
     {
-        if (ids == NULL)
+        // The header this tree adopted names the table replacementTable; ours
+        // called it ids (void *ids in the previous NSArchiver.h).
+        if (replacementTable == NULL)
         {
             // fault; throw exception here for requiring encodeRootObject:
         }
