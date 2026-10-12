@@ -9,6 +9,7 @@ FOUNDATION_EXPORT NSString *const NSPOSIXErrorDomain;
 FOUNDATION_EXPORT NSString *const NSOSStatusErrorDomain;
 FOUNDATION_EXPORT NSString *const NSMachErrorDomain;
 FOUNDATION_EXPORT NSString *const NSUnderlyingErrorKey;
+FOUNDATION_EXPORT NSString *const NSMultipleUnderlyingErrorsKey;
 FOUNDATION_EXPORT NSString *const NSLocalizedDescriptionKey;
 FOUNDATION_EXPORT NSString *const NSLocalizedFailureReasonErrorKey;
 FOUNDATION_EXPORT NSString *const NSLocalizedRecoverySuggestionErrorKey;
