@@ -9,6 +9,7 @@
 
 #import "NSValueInternal.h"
 #import "NSCoderInternal.h"
+#import "NSObjectInternal.h"
 #import "ForFoundationOnly.h"
 
 static NSString *NS_number = @"NS.number";
@@ -802,6 +803,194 @@ static inline id newDecodedNumber(NSCoder *coder)
 - (id)init
 {
     return nil;
+}
+
+@end
+
+//
+// NSConstantIntegerNumber: the class of the constant (literal) integer NSNumbers clang emits
+// straight into a client's binary for `@(...)` integer literals.
+//
+// WHY IT IS HERE.  A client built with constant number literals carries a static __objc_intobj
+// object whose first word is this CLASS OBJECT, so it binds _OBJC_CLASS_$_NSConstantIntegerNumber
+// STRONG and EAGER: dyld refuses the client until the name resolves, whether or not the literal is
+// ever used.  Measured on the framework that stopped this ladder's rung -- SymbolicationDT has
+// exactly one such literal (the single 24-byte entry of its "__DATA_CONST,__objc_intobj": the
+// literal @2, encoding pointer into __cstring, value 2) and binds the class object from Foundation.
+// Apple's Foundation is closed source, so what is portable here is the ABI, and that is clang's:
+//
+//     %struct.__builtin_NSConstantIntegerNumber = type { ptr isa, ptr encoding, i64 value }
+//     section "__DATA,__objc_intobj", "objc_arc_inert", align 8
+//
+// (clang/lib/CodeGen/CGObjCMac.cpp, pinned by clang's own test
+// test/CodeGenObjC/objc2-constant-number-literal.m, whose fixture declares exactly this class with
+// @public `char const *const _encoding` and `long long const _value`.)  The two ivars below
+// reproduce that layout after NSObject's isa -- offset 8 = _encoding, offset 16 = _value -- so an
+// object laid out by an Apple-built client, including a static literal inside its own data, is read
+// at the right offsets.  The objects are static data and are never allocated or deallocated, so only
+// instance behaviour is implemented here; SINGLETON_RR() supplies the retain/release behaviour the
+// other static objects in this framework use.
+//
+// BEHAVIOUR.  It is an NSNumber whose value is exactly the one the client wrote: the encoding says
+// whether that value is signed, and clang stores an unsigned literal's 64-bit pattern in the i64, so
+// a value from 2^63 up has to be read back through unsigned long long or it comes out negative.
+// The value accessors are spelled out because NSNumber in this tree implements none of them -- they
+// live on the CoreFoundation-backed __NSCFNumber, which this class is not -- while everything built
+// on them (compare:, isEqualToNumber:, hash, _getValue:forType:, _cfNumberType, the CFNumber bridge)
+// is inherited unchanged.  description/stringValue/descriptionWithLocale: go through an equivalent
+// regular number so there is one number-formatting implementation rather than a second.
+//
+
+static BOOL constantIntegerEncodingIsUnsigned(const char *encoding)
+{
+    switch (encoding[0])
+    {
+        case 'C':
+        case 'S':
+        case 'I':
+        case 'L':
+        case 'Q':
+            return YES;
+        default:
+            return NO;
+    }
+}
+
+@interface NSConstantIntegerNumber : NSNumber {
+    const char *_encoding;
+    long long _value;
+}
+@end
+
+@implementation NSConstantIntegerNumber
+
+SINGLETON_RR()
+
+- (const char *)objCType
+{
+    return _encoding;
+}
+
+- (char)charValue
+{
+    return (char)_value;
+}
+
+- (unsigned char)unsignedCharValue
+{
+    return (unsigned char)_value;
+}
+
+- (short)shortValue
+{
+    return (short)_value;
+}
+
+- (unsigned short)unsignedShortValue
+{
+    return (unsigned short)_value;
+}
+
+- (int)intValue
+{
+    return (int)_value;
+}
+
+- (unsigned int)unsignedIntValue
+{
+    return (unsigned int)_value;
+}
+
+- (long)longValue
+{
+    return (long)_value;
+}
+
+- (unsigned long)unsignedLongValue
+{
+    return (unsigned long)_value;
+}
+
+- (long long)longLongValue
+{
+    return _value;
+}
+
+- (unsigned long long)unsignedLongLongValue
+{
+    return (unsigned long long)_value;
+}
+
+- (float)floatValue
+{
+    if (constantIntegerEncodingIsUnsigned(_encoding))
+    {
+        return (float)(unsigned long long)_value;
+    }
+    return (float)_value;
+}
+
+- (double)doubleValue
+{
+    if (constantIntegerEncodingIsUnsigned(_encoding))
+    {
+        return (double)(unsigned long long)_value;
+    }
+    return (double)_value;
+}
+
+- (BOOL)boolValue
+{
+    return _value != 0;
+}
+
+/* NSValue's contract: write the value in the format objCType names. */
+- (void)getValue:(void *)buffer
+{
+    long long value = _value;
+    switch (_encoding[0])
+    {
+        case 'c': *(char *)buffer = (char)value; break;
+        case 'C': *(unsigned char *)buffer = (unsigned char)value; break;
+        case 'B': *(bool *)buffer = value != 0; break;
+        case 's': *(short *)buffer = (short)value; break;
+        case 'S': *(unsigned short *)buffer = (unsigned short)value; break;
+        case 'i': *(int *)buffer = (int)value; break;
+        case 'I': *(unsigned int *)buffer = (unsigned int)value; break;
+        case 'l': *(long *)buffer = (long)value; break;
+        case 'L': *(unsigned long *)buffer = (unsigned long)value; break;
+        case 'q': *(long long *)buffer = value; break;
+        default:  *(unsigned long long *)buffer = (unsigned long long)value; break;
+    }
+}
+
+/* The same value as an ordinary number, so formatting is the framework's, not a second one here. */
+- (NSNumber *)_equivalentNumber
+{
+    if (constantIntegerEncodingIsUnsigned(_encoding))
+    {
+        return [NSNumber numberWithUnsignedLongLong:(unsigned long long)_value];
+    }
+    if (_encoding[0] == 'B')
+    {
+        return [NSNumber numberWithBool:_value != 0];
+    }
+    return [NSNumber numberWithLongLong:_value];
+}
+
+- (NSString *)description
+{
+    return [[self _equivalentNumber] description];
+}
+
+- (NSString *)stringValue
+{
+    return [[self _equivalentNumber] stringValue];
+}
+
+- (NSString *)descriptionWithLocale:(id)locale
+{
+    return [[self _equivalentNumber] descriptionWithLocale:locale];
 }
 
 @end
