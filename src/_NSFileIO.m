@@ -250,3 +250,80 @@ BOOL _NSWriteBytesToFile(NSData *data, id pathOrURL, NSDataWritingOptions option
         return remaining == 0;
     }
 }
+
+// Apple's Foundation exports this private file-error constructor, and a Mach-O client binds it by
+// that exact name: Xcode 26.3's DTXConnectionServices.framework (built for Mac OS X 14.0) imports
+// __NSErrorWithFilePathErrnoAndVariant from ordinal 3, Foundation, and dyld stops on it.
+//
+// THE CALL SITE, measured from the client's own code (its image uses chained fixups, so the ABI is
+// read from the stub's caller, not from a bind opcode). One call site exists in the whole image, at
+// 0x1d924 in the file-opening helper of -[DTXFileDescriptorTransport initWithIncomingFilePath:
+// outgoingFilePath:error:]; the registers at that call are:
+//
+//   rdi = *__error()  the errno of the open(2) that just failed
+//   rsi = the NSString path handed to that open(2) (converted with UTF8String in the same helper)
+//   rdx = (~openFlags) & 1 -- 1 for the incoming open (O_RDONLY|O_CLOEXEC, flags 0x1000000) and 0
+//         for the outgoing one (O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, flags 0x1000601)
+//   rcx = 0
+//
+// So the third argument is the read/write direction of the failed operation, and the fourth is a
+// value the only measured caller always passes as zero.  The result is retained/autoreleased, stored
+// into the caller's NSError ** and the initializer then returns nil; DTXConnectionServices reads no
+// key of it by name -- it does not import NSFilePathErrorKey -- and imports NSCocoaErrorDomain,
+// NSLocalizedDescriptionKey, NSDebugDescriptionErrorKey, NSUnderlyingErrorKey and _OBJC_CLASS_
+// $_NSError, which is what it builds its own errors with.
+//
+// The error built here is Apple's: an NSCocoaErrorDomain error whose code is the NSFileRead*/NSFile
+// Write* code for the errno (the mapping Apple publishes in swift-corelibs-foundation's Darwin
+// overlay, Darwin/Foundation-swiftoverlay/DataThunks.m _NSErrorWithFilePathAndErrno, which this
+// tree already carries), the path under NSFilePathErrorKey (NSURLErrorKey for an NSURL, the key
+// choice NSFileManager.m and NSFileHandle.m already make here) and the POSIX error itself under
+// NSUnderlyingErrorKey.  Foundation generates the localized description from the code, so this
+// constructor -- like Apple's -- does not store one.
+NSError *_NSErrorWithFilePathErrnoAndVariant(int posixErrno, id path, int variant, intptr_t unmeasured)
+{
+    // The measured variants are 0 (the O_WRONLY|O_CREAT|O_TRUNC open) and 1 (the O_RDONLY open):
+    // non-zero is a read.  Other values are not measured, because the only consumer this tree can
+    // see passes nothing else.
+    BOOL reading = (variant != 0);
+    NSInteger code;
+
+    if (reading)
+    {
+        switch (posixErrno)
+        {
+            case EFBIG:        code = NSFileReadTooLargeError; break;
+            case ENOENT:       code = NSFileReadNoSuchFileError; break;
+            case EPERM:        // fall through: a permission failure is the same error either way
+            case EACCES:       code = NSFileReadNoPermissionError; break;
+            case ENAMETOOLONG: code = NSFileReadInvalidFileNameError; break;
+            default:           code = NSFileReadUnknownError; break;
+        }
+    }
+    else
+    {
+        switch (posixErrno)
+        {
+            case ENOENT:       code = NSFileNoSuchFileError; break;
+            case EPERM:
+            case EACCES:       code = NSFileWriteNoPermissionError; break;
+            case ENAMETOOLONG: code = NSFileWriteInvalidFileNameError; break;
+#ifdef EDQUOT
+            case EDQUOT:
+#endif
+            case ENOSPC:       code = NSFileWriteOutOfSpaceError; break;
+            case EROFS:        code = NSFileWriteVolumeReadOnlyError; break;
+            case EEXIST:       code = NSFileWriteFileExistsError; break;
+            default:           code = NSFileWriteUnknownError; break;
+        }
+    }
+
+    // Both the call site and the name say the first argument is a path; NSFileManager.m's own helper
+    // picks the key the same way, because an NSURL may be handed to either.  The fourth argument is
+    // accepted and not read: it is 0 at the only call site, and Foundation is closed source.
+    (void)unmeasured;
+    NSString *pathKey = [path isKindOfClass:[NSURL class]] ? NSURLErrorKey : NSFilePathErrorKey;
+    NSError *underlying = [NSError errorWithDomain:NSPOSIXErrorDomain code:posixErrno userInfo:nil];
+    return [NSError errorWithDomain:NSCocoaErrorDomain code:code
+                            userInfo:@{ pathKey: path, NSUnderlyingErrorKey: underlying }];
+}
