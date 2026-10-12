@@ -110,6 +110,7 @@ set(foundation_sources
 	src/NSLikePredicateOperator.m
 	src/NSLinguisticTagger.m
 	src/NSLinkCheckingResult.m
+	src/NSListFormatter.m
 	src/NSLocale.m
 	src/NSLocalizableString.m
 	src/NSLock.m
@@ -301,6 +302,10 @@ add_separated_framework(Foundation
 		objc
 		system
 		CoreFoundation
+		# NSListFormatter's join is ICU's list formatter (ulistfmt_open/ulistfmt_format): the list
+		# pattern is CLDR data, and libicucore is the only list formatter this tree carries -- the
+		# same image the payload's Swift Foundation binds and CoreFoundation already links.
+		icucore
 		CFNetwork_firstpass
 		xml2
 	LINK_FLAGS " -Wl,-reexport_library,${CMAKE_BINARY_DIR}/src/external/corefoundation/CoreFoundation \
@@ -316,6 +321,25 @@ if (TARGET_x86_64)
 set_property(
 	TARGET Foundation_x86_64 APPEND_STRING PROPERTY
 	LINK_FLAGS " -Wl,-reexported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/reexport_x86_64.exp"
+)
+# Apple's Foundation.framework binary IS the Swift Foundation: clients built against a macOS SDK bind their
+# Swift Foundation symbols to /System/Library/Frameworks/Foundation.framework/Versions/C/Foundation, not to
+# /usr/lib/swift/libswiftFoundation.dylib, and dyld resolves a two-level reference through the image's
+# re-export chain. Measured with a real client: Xcode 26.3's DVTSystemPrerequisites loads the framework and
+# does NOT load the overlay dylib at all, while referencing _$s10Foundation19PropertyListDecoder...
+# Darling's Foundation is Objective-C only, so the Swift half lives in the payload's overlay image; re-exporting
+# it here is what makes the framework path satisfy such a client, and it is the same mechanism this target
+# already uses for CoreFoundation and libobjc.A.dylib a few lines above. It is a re-export, not a stub: the
+# symbols are defined by that image, and the framework defines none of them locally.
+set(_foundation_swift_overlay "${CMAKE_SOURCE_DIR}/src/external/swift/libswiftFoundation.dylib")
+if(NOT EXISTS "${_foundation_swift_overlay}")
+	message(FATAL_ERROR
+		"Foundation must re-export the Swift Foundation overlay, but "
+		"src/external/swift/libswiftFoundation.dylib is absent: materialise the git-lfs payload first")
+endif()
+set_property(
+	TARGET Foundation_x86_64 APPEND_STRING PROPERTY
+	LINK_FLAGS " -Wl,-reexport_library,${_foundation_swift_overlay}"
 )
 endif (TARGET_x86_64)
 

@@ -994,3 +994,255 @@ SINGLETON_RR()
 }
 
 @end
+
+//
+// NSConstantFloatNumber / NSConstantDoubleNumber: the classes of the constant (literal) float and
+// double NSNumbers clang emits straight into a client's binary for `@(1.5)` / `@(1.5f)`.
+//
+// WHY THEY ARE HERE.  Exactly like the integer class above: the literal is a static object in the
+// client's own data whose first word is this CLASS OBJECT, so the client binds
+// _OBJC_CLASS_$_NSConstant<Float|Double>Number STRONG and EAGER and dyld refuses the client until
+// the name resolves.  Measured on the client that stopped this ladder's rung: DVTFoundation binds
+// the double class eagerly (its "__DATA_CONST,__objc_doubleobj" holds three 16-byte literals --
+// 0.25, 1.0, 0.5, each {isa, double}) and the float class (its "__DATA_CONST,__objc_floatobj"
+// holds two 16-byte entries -- {isa, float, 4 bytes padding}), and so do XCTestCore,
+// XCUIAutomation, XCTHarness, IDEFoundation, DevToolsCore and others.  Apple's Foundation is
+// closed source, so the ABI is the reference, and it is clang's:
+//
+//     %struct.__builtin_NSConstantFloatNumber  = type { ptr, float }
+//     %struct.__builtin_NSConstantDoubleNumber = type { ptr, double }
+//     section "__DATA,__objc_floatobj" / "__DATA,__objc_doubleobj", align 8
+//
+// (clang's own test test/CodeGenObjC/objc2-constant-number-literal.m pins exactly those two types
+// and those two section names, and its Inputs/constant-literal-support.h declares the classes as
+// `@interface NSConstantFloatNumber : NSNumber { @public float const _value; }` and
+// `@interface NSConstantDoubleNumber : NSNumber { @public double const _value; }`.)  Unlike the
+// integer object there is NO encoding field: the class itself names the type in -objCType.  The
+// ivars below reproduce the layout after NSObject's isa -- offset 8 = _value -- so a literal laid
+// out by the client is read at the right offset.  The objects are static data and are never
+// allocated or deallocated, so only instance behaviour is implemented here; SINGLETON_RR()
+// supplies the retain/release behaviour the other static objects in this framework use.
+//
+// BEHAVIOUR.  The value accessors are spelled out for the same reason as the integer class:
+// NSNumber in this tree implements none of them (they live on the CoreFoundation-backed
+// __NSCFNumber, which this class is not), while everything built on them (compare:, isEqualToNumber:,
+// hash, _getValue:forType:, _cfNumberType, the CFNumber bridge) is inherited unchanged.
+// description/stringValue/descriptionWithLocale: go through an equivalent regular number so there is
+// one number-formatting implementation rather than a second.
+//
+
+@interface NSConstantFloatNumber : NSNumber {
+    float _value;
+}
+@end
+
+@implementation NSConstantFloatNumber
+
+SINGLETON_RR()
+
+- (const char *)objCType
+{
+    return "f";
+}
+
+- (char)charValue
+{
+    return (char)_value;
+}
+
+- (unsigned char)unsignedCharValue
+{
+    return (unsigned char)_value;
+}
+
+- (short)shortValue
+{
+    return (short)_value;
+}
+
+- (unsigned short)unsignedShortValue
+{
+    return (unsigned short)_value;
+}
+
+- (int)intValue
+{
+    return (int)_value;
+}
+
+- (unsigned int)unsignedIntValue
+{
+    return (unsigned int)_value;
+}
+
+- (long)longValue
+{
+    return (long)_value;
+}
+
+- (unsigned long)unsignedLongValue
+{
+    return (unsigned long)_value;
+}
+
+- (long long)longLongValue
+{
+    return (long long)_value;
+}
+
+- (unsigned long long)unsignedLongLongValue
+{
+    return (unsigned long long)_value;
+}
+
+- (float)floatValue
+{
+    return _value;
+}
+
+- (double)doubleValue
+{
+    return (double)_value;
+}
+
+- (BOOL)boolValue
+{
+    return _value != 0;
+}
+
+/* NSValue's contract: write the value in the format objCType names. */
+- (void)getValue:(void *)buffer
+{
+    *(float *)buffer = _value;
+}
+
+/* The same value as an ordinary number, so formatting is the framework's, not a second one here. */
+- (NSNumber *)_equivalentNumber
+{
+    return [NSNumber numberWithFloat:_value];
+}
+
+- (NSString *)description
+{
+    return [[self _equivalentNumber] description];
+}
+
+- (NSString *)stringValue
+{
+    return [[self _equivalentNumber] stringValue];
+}
+
+- (NSString *)descriptionWithLocale:(id)locale
+{
+    return [[self _equivalentNumber] descriptionWithLocale:locale];
+}
+
+@end
+
+@interface NSConstantDoubleNumber : NSNumber {
+    double _value;
+}
+@end
+
+@implementation NSConstantDoubleNumber
+
+SINGLETON_RR()
+
+- (const char *)objCType
+{
+    return "d";
+}
+
+- (char)charValue
+{
+    return (char)_value;
+}
+
+- (unsigned char)unsignedCharValue
+{
+    return (unsigned char)_value;
+}
+
+- (short)shortValue
+{
+    return (short)_value;
+}
+
+- (unsigned short)unsignedShortValue
+{
+    return (unsigned short)_value;
+}
+
+- (int)intValue
+{
+    return (int)_value;
+}
+
+- (unsigned int)unsignedIntValue
+{
+    return (unsigned int)_value;
+}
+
+- (long)longValue
+{
+    return (long)_value;
+}
+
+- (unsigned long)unsignedLongValue
+{
+    return (unsigned long)_value;
+}
+
+- (long long)longLongValue
+{
+    return (long long)_value;
+}
+
+- (unsigned long long)unsignedLongLongValue
+{
+    return (unsigned long long)_value;
+}
+
+- (float)floatValue
+{
+    return (float)_value;
+}
+
+- (double)doubleValue
+{
+    return _value;
+}
+
+- (BOOL)boolValue
+{
+    return _value != 0;
+}
+
+/* NSValue's contract: write the value in the format objCType names. */
+- (void)getValue:(void *)buffer
+{
+    *(double *)buffer = _value;
+}
+
+/* The same value as an ordinary number, so formatting is the framework's, not a second one here. */
+- (NSNumber *)_equivalentNumber
+{
+    return [NSNumber numberWithDouble:_value];
+}
+
+- (NSString *)description
+{
+    return [[self _equivalentNumber] description];
+}
+
+- (NSString *)stringValue
+{
+    return [[self _equivalentNumber] stringValue];
+}
+
+- (NSString *)descriptionWithLocale:(id)locale
+{
+    return [[self _equivalentNumber] descriptionWithLocale:locale];
+}
+
+@end
