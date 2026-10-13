@@ -15,6 +15,24 @@
 
 @implementation NSDate (NSDate)
 
+/* +[NSDate now] is the class property Apple's NSDate.h declares in the
+ * NSDateCreation category (macOS 10.15/iOS 13) and the accessor Xcode3Core's
+ * -[Xcode3CommandLineBuildTool resolveErrorTriageResultBundleDestination]
+ * sends on its error-printing path.  It was absent from this tree entirely --
+ * no `now` selector string in the deployed Foundation -- so the error the tool
+ * was trying to report was masked by the unrecognized-selector exception.
+ *
+ * Darwin documents `now` as an NSDate for the current date and time:
+ * `+[NSDate now]` is equivalent to `+[NSDate date]`, which is the same
+ * +alloc/-initWithTimeIntervalSinceReferenceDate: protocol the receiver class
+ * (and any subclass that overrides alloc/init) supplies.  Implemented through
+ * `self`, exactly as the neighbouring distantFuture/distantPast and date
+ * constructors are, so a subclass gets its own class back. */
++ (id)now
+{
+    return [self date];
+}
+
 - (Class)classForCoder
 {
     return [NSDate self];

@@ -41,6 +41,9 @@ typedef double NSTimeInterval;
 + (instancetype)dateWithTimeInterval:(NSTimeInterval)ti sinceDate:(NSDate *)date;
 + (id)distantFuture;
 + (id)distantPast;
+/* Apple's NSDate.h declares +now in the NSDateCreation category beside date and
+ * the distant bounds, as a readonly class property (macOS 10.15/iOS 13). */
+@property (class, readonly, copy) NSDate *now API_AVAILABLE(macos(10.15), ios(13.0), watchos(6.0), tvos(13.0));
 - (instancetype)init;
 - (instancetype)initWithTimeIntervalSinceNow:(NSTimeInterval)ti;
 - (instancetype)initWithTimeIntervalSinceReferenceDate:(NSTimeInterval)ti;
