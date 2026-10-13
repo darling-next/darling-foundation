@@ -26,6 +26,11 @@ enum {
 + (id)capitalizedLetterCharacterSet;
 + (id)symbolCharacterSet;
 + (id)newlineCharacterSet;
+/*
+ * The URL component/subcomponent sets that -stringByAddingPercentEncodingWithAllowedCharacters:
+ * consumes, declared as Apple's Foundation does (NSCharacterSet(NSURLUtilities)).
+ */
++ (id)URLPathAllowedCharacterSet;
 + (id)characterSetWithRange:(NSRange)range;
 + (id)characterSetWithCharactersInString:(NSString *)string;
 + (id)characterSetWithBitmapRepresentation:(NSData *)data;
