@@ -74,6 +74,30 @@ enum {
 
 FOUNDATION_EXPORT NSString * const NSCharacterConversionException;
 
+/* NSStringTransform and the predefined transforms mirror Apple's Foundation/NSString.h (the typedef
+ * at NSString.h:334, the constants at NSString.h:340-355 there).  The constants are the SAME
+ * CoreFoundation objects CFStringTransform.c defines as kCFStringTransform*: the Foundation names are
+ * ld64 aliases of them in src/external/corefoundation/SymbolAliases, so the transform machinery's
+ * identity map recognises an object passed under either name. */
+typedef NSString *NSStringTransform NS_TYPED_EXTENSIBLE_ENUM;
+
+FOUNDATION_EXPORT NSStringTransform const NSStringTransformLatinToKatakana;
+FOUNDATION_EXPORT NSStringTransform const NSStringTransformLatinToHiragana;
+FOUNDATION_EXPORT NSStringTransform const NSStringTransformLatinToHangul;
+FOUNDATION_EXPORT NSStringTransform const NSStringTransformLatinToArabic;
+FOUNDATION_EXPORT NSStringTransform const NSStringTransformLatinToHebrew;
+FOUNDATION_EXPORT NSStringTransform const NSStringTransformLatinToThai;
+FOUNDATION_EXPORT NSStringTransform const NSStringTransformLatinToCyrillic;
+FOUNDATION_EXPORT NSStringTransform const NSStringTransformLatinToGreek;
+FOUNDATION_EXPORT NSStringTransform const NSStringTransformToLatin;
+FOUNDATION_EXPORT NSStringTransform const NSStringTransformMandarinToLatin;
+FOUNDATION_EXPORT NSStringTransform const NSStringTransformHiraganaToKatakana;
+FOUNDATION_EXPORT NSStringTransform const NSStringTransformFullwidthToHalfwidth;
+FOUNDATION_EXPORT NSStringTransform const NSStringTransformToXMLHex;
+FOUNDATION_EXPORT NSStringTransform const NSStringTransformToUnicodeName;
+FOUNDATION_EXPORT NSStringTransform const NSStringTransformStripCombiningMarks;
+FOUNDATION_EXPORT NSStringTransform const NSStringTransformStripDiacritics;
+
 @interface NSString : NSObject <NSCopying, NSMutableCopying, NSSecureCoding>
 
 - (NSUInteger)length;
