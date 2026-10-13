@@ -119,7 +119,7 @@
 - (NSArray *)rangeArray
 {
     NSMutableArray *rangeArray = [[NSMutableArray alloc] init];
-    for (NSUInteger idx = 0; idx < NSRegularExpressionCheckingResultSimpleLimit; idx++)
+    for (NSUInteger idx = 0; idx < _numberOfRanges; idx++)
     {
         [rangeArray addObject:[NSValue valueWithBytes:&_ranges[idx] objCType:@encode(NSRange)]];
     }
@@ -138,7 +138,7 @@
 
 - (BOOL)_adjustRangesWithOffset:(NSInteger)offset
 {
-    for (NSUInteger i = 0; i < NSRegularExpressionCheckingResultSimpleLimit; ++i) {
+    for (NSUInteger i = 0; i < _numberOfRanges; ++i) {
         _ranges[i].location += offset;
     }
     return YES;
@@ -182,6 +182,12 @@
     self = [super init];
     if (self)
     {
+        /* The storage is a fixed array, but the RESULT has exactly `count` ranges: the whole match plus one
+         * per capture group. Darwin's match answers -numberOfRanges with that count (and the vendored
+         * reference in this tree, swift-corelibs-foundation's NSRegularExpressionCheckingResult, derives it
+         * from the range array it was handed), so the limit is a storage bound and not the reported count. */
+        NSAssert(count <= NSRegularExpressionCheckingResultExtendedLimit, @"Should be no more than %u ranges", NSRegularExpressionCheckingResultExtendedLimit);
+        _numberOfRanges = count;
         memcpy(_ranges, ranges, count * sizeof(NSRange));
         _regularExpression = [expression retain];
     }
@@ -197,7 +203,7 @@
 - (NSArray *)rangeArray
 {
     NSMutableArray *rangeArray = [[NSMutableArray alloc] init];
-    for (NSUInteger idx = 0; idx < NSRegularExpressionCheckingResultExtendedLimit; idx++)
+    for (NSUInteger idx = 0; idx < _numberOfRanges; idx++)
     {
         [rangeArray addObject:[NSValue valueWithBytes:&_ranges[idx] objCType:@encode(NSRange)]];
     }
@@ -211,12 +217,12 @@
 
 - (NSUInteger)numberOfRanges
 {
-    return NSRegularExpressionCheckingResultExtendedLimit;
+    return _numberOfRanges;
 }
 
 - (BOOL)_adjustRangesWithOffset:(NSInteger)offset
 {
-    for (NSUInteger i = 0; i < NSRegularExpressionCheckingResultExtendedLimit; ++i)
+    for (NSUInteger i = 0; i < _numberOfRanges; ++i)
     {
         _ranges[i].location += offset;
     }

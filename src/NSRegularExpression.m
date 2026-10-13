@@ -269,8 +269,20 @@ static UBool enumerateFindProgressCallback(const void *context, int64_t matchInd
             int64_t location = uregex_start64(regexp, i, &error);
             if (U_SUCCESS(error))
             {
-                ranges[i].location = location == -1 ? NSNotFound : location;
-                ranges[i].length = uregex_end64(regexp, i, &error) - location;
+                int64_t end = uregex_end64(regexp, i, &error);
+                if (U_SUCCESS(error) && location == -1)
+                {
+                    /* A group that did not participate: ICU answers -1 for both ends, and Darwin's match
+                     * reports {NSNotFound, 0} -- a length derived from the sentinel location would be a
+                     * plausible-looking wrong range, so the sentinel is made explicit here (the same
+                     * normalisation swift-corelibs-foundation's NSRegularExpressionCheckingResult applies). */
+                    ranges[i] = NSMakeRange(NSNotFound, 0);
+                }
+                else if (U_SUCCESS(error))
+                {
+                    ranges[i].location = location;
+                    ranges[i].length = end - location;
+                }
             }
         }
 
