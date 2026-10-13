@@ -16,9 +16,12 @@
 #endif
 - (id)initWithKey:(NSString *)key ascending:(BOOL)ascending;
 - (id)initWithKey:(NSString *)key ascending:(BOOL)ascending selector:(SEL)selector;
-- (NSString *)key;
-- (BOOL)ascending;
-- (SEL)selector;
+// Declared as Apple declares them (readonly properties, key/selector nullable), so a Swift importer
+// sees `descriptor.key` rather than a `key()` method -- Foundation's own SortDescriptor bridging and
+// anything else written against the current SDK reads them as properties.
+@property (nullable, readonly, copy) NSString *key;
+@property (readonly) BOOL ascending;
+@property (nullable, readonly) SEL selector;
 #if NS_BLOCKS_AVAILABLE
 - (id)initWithKey:(NSString *)key ascending:(BOOL)ascending comparator:(NSComparator)comparator;
 - (NSComparator)comparator;

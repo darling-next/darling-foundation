@@ -195,6 +195,12 @@ Typedefs:
 - Name: NSURLResourceKey
   SwiftWrapper: struct
   SwiftName: URLResourceKey
+# As on macOS (that SDK's Foundation.apinotes maps it in its Typedefs list): the NSString-backed extensible
+# enum NSStringTransform imports as the struct StringTransform. The IDEFoundation image of the ladder binds
+# `StringProtocol.applyingTransform(_:reverse:)` with that type, so the name -- and its mangling -- is part
+# of the surface, not a spelling preference.
+- Name: NSStringTransform
+  SwiftName: StringTransform
 # The importer does not infer nesting from NS_TYPED_EXTENSIBLE_ENUM or NS_ENUM, so without the
 # four entries below the macOS spellings NSAttributedString.Key, NSCalendar.Unit,
 # NumberFormatter.Style and RunLoop.Mode do not resolve at all.
