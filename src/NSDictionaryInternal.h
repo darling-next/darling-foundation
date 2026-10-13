@@ -13,6 +13,7 @@ CF_EXPORT CFDataRef _CFPropertyListCreateXMLData(CFAllocatorRef allocator, CFPro
 
 @interface NSDictionary (Internal)
 + (id)newWithContentsOf:(id)source immutable:(BOOL)immutable;
++ (id)newWithContentsOf:(id)source immutable:(BOOL)immutable error:(NSError **)error;
 @end
 
 __attribute__((visibility("hidden")))
@@ -32,6 +33,7 @@ __attribute__((visibility("hidden")))
 - (id)retain;
 - (id)initWithContentsOfURL:(NSURL *)url;
 - (id)initWithContentsOfFile:(NSString *)path;
+- (id)initWithContentsOfURL:(NSURL *)url error:(NSError **)error;
 - (id)init;
 - (id)initWithCapacity:(NSUInteger)capacity;
 - (id)initWithObjects:(const id [])objects forKeys:(const id <NSCopying> [])keys count:(NSUInteger)cnt;

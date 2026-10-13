@@ -22,6 +22,9 @@
 #import <CoreFoundation/CFBase.h>
 #import <CoreFoundation/CFPropertyList.h>
 
+#import <Foundation/NSError.h>
+#import "_NSFileIO.h"
+
 #import <stdio.h>
 #import <stdlib.h>
 #import "NSExternals.h"
@@ -30,40 +33,81 @@
 
 + (id)newWithContentsOf:(id)source immutable:(BOOL)immutable
 {
-    CFDataRef data = NULL;
+    return [self newWithContentsOf:source immutable:immutable error:NULL];
+}
+
+// The error-returning variant exists so the error-returning public APIs
+// (+[NSDictionary dictionaryWithContentsOfURL:error:], -[NSDictionary initWithContentsOfURL:error:])
+// can report WHY the contents could not be read. The reader used to discard both reasons: the failed
+// file read and the property list's own CFError, so its callers invented one
+// (NSDictionaryErrorDomain, code -1), which matches nothing a caller can act on.
++ (id)newWithContentsOf:(id)source immutable:(BOOL)immutable error:(NSError **)error
+{
+    NSError *readError = nil;
+    NSData *data = nil;
 
     if ([source isNSString__])
     {
-        data = (CFDataRef)[[NSData alloc] initWithContentsOfFile:source];
+        data = [[NSData alloc] initWithContentsOfFile:source options:0 error:&readError];
     }
     else
     {
-        data = (CFDataRef)[[NSData alloc] initWithContentsOfURL:source];
+        data = [[NSData alloc] initWithContentsOfURL:source options:0 error:&readError];
     }
 
     if (data == nil)
     {
+        if (error != NULL)
+        {
+            // -[NSData initWithContentsOf{File,URL}:options:error:] reports the errno of the failed
+            // open(2)/read(2) in NSPOSIXErrorDomain; Foundation reports the same failure in
+            // NSCocoaErrorDomain with the NSFileRead* code for that errno and the POSIX error as
+            // NSUnderlyingError, which is what _NSErrorWithFilePathErrnoAndVariant constructs.
+            if ([[readError domain] isEqualToString:NSPOSIXErrorDomain])
+            {
+                *error = _NSErrorWithFilePathErrnoAndVariant((int)[readError code], source, 1, 0);
+            }
+            else
+            {
+                *error = readError;
+            }
+        }
         return nil;
     }
-    else
+
+    CFErrorRef plistError = NULL;
+    CFDictionaryRef plist = (CFDictionaryRef)CFPropertyListCreateWithData(kCFAllocatorDefault, (CFDataRef)data, immutable ? kCFPropertyListImmutable : kCFPropertyListMutableContainers, NULL, &plistError);
+    [data release];
+
+    if (plistError != NULL)
     {
-        CFDictionaryRef plist = (CFDictionaryRef)CFPropertyListCreateWithData(kCFAllocatorDefault, data, immutable ? kCFPropertyListImmutable : kCFPropertyListMutableContainers, NULL, NULL);
-        CFRelease(data);
-        id dict = nil;
-        if (immutable)
+        if (error != NULL)
         {
-            dict = [[NSDictionary alloc] initWithDictionary:(NSDictionary *)plist];
+            // The property list's own error, in the Cocoa domain with the
+            // NSPropertyList*/kCFPropertyList* code it was created with. Handing it to the
+            // autorelease pool transfers the +1 the parser's CFErrorRef carries.
+            *error = [(NSError *)plistError autorelease];
         }
         else
         {
-            dict = [[NSMutableDictionary alloc] initWithDictionary:(NSMutableDictionary *)plist];
+            CFRelease(plistError);
         }
-        if (plist != nil)
-        {
-            CFRelease(plist);
-        }
-        return dict;
     }
+
+    id dict = nil;
+    if (immutable)
+    {
+        dict = [[NSDictionary alloc] initWithDictionary:(NSDictionary *)plist];
+    }
+    else
+    {
+        dict = [[NSMutableDictionary alloc] initWithDictionary:(NSMutableDictionary *)plist];
+    }
+    if (plist != nil)
+    {
+        CFRelease(plist);
+    }
+    return dict;
 }
 
 OBJC_PROTOCOL_IMPL_PUSH
