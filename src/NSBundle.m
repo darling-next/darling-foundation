@@ -17,6 +17,10 @@
 #import <Foundation/NSDictionary.h>
 #import <Foundation/NSFileManager.h>
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 NSString *const NSBundleDidLoadNotification = @"NSBundleDidLoadNotification";
 NSString *const NSLoadedClasses = @"NSLoadedClasses";
 
@@ -26,6 +30,35 @@ static NSMutableDictionary *classToBundle = nil;
 static NSMutableDictionary<NSString *, NSBundle *> *bundlesByPath = nil;
 static NSMutableDictionary<NSString *, NSBundle *> *frameworkBundlesByPath = nil;
 static NSMutableDictionary<NSString *, NSBundle *> *otherBundlesByPath = nil;
+
+// DIAGNOSTIC (env-gated, silent unless DARLING_NSBUNDLE_ID_LOG is set to an identifier).  With the
+// variable set this prints, to stderr, what +[NSBundle bundleWithIdentifier:] answers FOR THAT
+// IDENTIFIER (the identifier it was asked for and the path it resolved to, or nil).  It exists so the
+// workload's own output can name the producer of the nil dictionary member instead of a reader having
+// to infer it: DevToolsSupport's +[NSBundle cachedBundleWithIdentifier:] returns nil exactly when this
+// method does.  Off and silent otherwise; see evidence/nsbundle-bundle-identifier-rung/.
+static BOOL _NSBundleIdentifierLogWanted(NSString *identifier)
+{
+    const char *want = getenv("DARLING_NSBUNDLE_ID_LOG");
+    if (want == NULL || want[0] == '\0' || identifier == nil) {
+        return NO;
+    }
+    BOOL same = NO;
+    @synchronized(identifier) {
+        same = [identifier isEqualToString: [NSString stringWithUTF8String: want]];
+    }
+    return same;
+}
+
+static void _NSBundleIdentifierLog(NSString *identifier, NSBundle *bundle)
+{
+    if (_NSBundleIdentifierLogWanted(identifier)) {
+        const char *path = bundle != nil ? [[bundle bundlePath] UTF8String] : NULL;
+        fprintf(stderr, "DARLING-NSBUNDLE-ID: bundleWithIdentifier \"%s\" -> %s\n",
+                [identifier UTF8String], path != NULL ? path : "(nil)");
+        fflush(stderr);
+    }
+}
 
 __attribute__((visibility("hidden")))
 NSString * _NSFrameworkPathFromLibraryPath(NSString *path)
@@ -254,12 +287,44 @@ static NSString* frameworkPathForPath(NSString *filePath) {
 
 + (NSBundle *)bundleWithIdentifier:(NSString *)identifier
 {
+    if (identifier == nil) {
+        return nil;
+    }
+
     NSBundle *bundle = nil;
     @synchronized(bundlesByIdentifier)
     {
         bundle = [bundlesByIdentifier[identifier] retain];
-        // TODO: we should be doing some searching if the bundle is nil
     }
+
+    if (bundle == nil)
+    {
+        // Darwin answers this from CFBundle, not from an NSBundle-private registration table: the
+        // bundle for an identifier may be one NSBundle never created, because CFBundle also knows the
+        // bundles of the images dyld loaded.  Xcode asks for exactly such a one
+        // (+[NSBundle cachedBundleWithIdentifier:] in DevToolsSupport, with "com.apple.Xcode.
+        // DevToolsCore" -- a framework dyld loaded, that nothing had opened through NSBundle), and a
+        // nil there is a message to nil one call later, which is how a nil dictionary member reached
+        // +[PBXBuildRule initialize].  This is the same search the rest of CFBundle's callers get;
+        // the bundle found this way is registered by -initWithPath:'s -_addToGlobalTables, so the
+        // next lookup answers from the table above.
+        CFBundleRef cfBundle = CFBundleGetBundleWithIdentifier((CFStringRef)identifier);
+        if (cfBundle != NULL)
+        {
+            CFURLRef url = CFBundleCopyBundleURL(cfBundle);
+            if (url != NULL)
+            {
+                NSString *path = [(NSURL *)url path];
+                if (path != nil)
+                {
+                    bundle = [[self bundleWithPath: path] retain];
+                }
+                CFRelease(url);
+            }
+        }
+    }
+
+    _NSBundleIdentifierLog(identifier, bundle);
     return [bundle autorelease];
 }
 
