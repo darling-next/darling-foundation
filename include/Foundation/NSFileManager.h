@@ -169,6 +169,14 @@ FOUNDATION_EXPORT NSString * const NSFileSystemFreeNodes;
 
 @end
 
+// Darwin declares the user-information accessors in their own category (NSFileManager.h,
+// "NSUserInformation": homeDirectoryForCurrentUser, temporaryDirectory, homeDirectoryForUser:).
+// Only the one this runtime can answer faithfully is declared and implemented here; see the
+// implementation in NSFileManager.m for what "faithfully" means and what was measured.
+@interface NSFileManager (NSUserInformation)
+@property (readonly, copy) NSURL *temporaryDirectory;
+@end
+
 @interface NSObject (NSCopyLinkMoveHandler)
 - (BOOL)fileManager:(NSFileManager *)fm shouldProceedAfterError:(NSDictionary *)errorInfo;
 - (void)fileManager:(NSFileManager *)fm willProcessPath:(NSString *)path;

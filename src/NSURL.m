@@ -87,6 +87,42 @@ OBJC_PROTOCOL_IMPL_PUSH
 
     return self;
 }
+
+// The designated initializer of the file-URL-with-base family (the SDK declares it
+// NS_DESIGNATED_INITIALIZER, macOS 10.11+). Every decision here belongs to CoreFoundation's
+// CFURLCreateWithFileSystemPathRelativeToBase, which is the runtime's own implementation of these
+// semantics and therefore the only one that cannot drift from the rest of the URL code:
+//
+//   * an absolute path IGNORES the base ("if fileSystemPath is an absolute path, ignore baseURL
+//     (if provided)", CFURL.c _CFURLCreateWithFileSystemPath), so baseURL is nil on the result;
+//   * a relative path is kept relative and the base is stored (absolute-ised), so relativeString
+//     is the path as given and absoluteURL/absoluteString resolve against the base;
+//   * an empty path WITH a base IS the base ("else if (baseURL) { result = CFRetain(baseURL); }"),
+//     which is also what the vendored swift-corelibs reference does with the base's own path;
+//   * a relative path with NO base falls back to the current directory, exactly like the
+//     non-relative initializer above.
+//
+// The isDirectory flag is passed through unexamined: the SDK documents the flag as the caller's
+// statement about the file system, and the tree's existing initializer says the same ("we're
+// supposed to blindly trust the input").
+- (id)initFileURLWithPath:(NSString *)path isDirectory:(BOOL)isDir relativeToURL:(NSURL *)baseURL
+{
+    if (path == nil)
+    {
+        [self release];
+        [NSException raise:NSInvalidArgumentException format:@"path cannot be nil"];
+        return nil;
+    }
+    if ([path length] == 0 && baseURL == nil)
+    {
+        [self release];
+        return nil;
+    }
+
+    [self release];
+    self = (NSURL*) CFURLCreateWithFileSystemPathRelativeToBase(kCFAllocatorDefault, (CFStringRef)path, kCFURLPOSIXPathStyle, isDir, (CFURLRef)baseURL);
+    return self;
+}
 OBJC_PROTOCOL_IMPL_POP
 
 - (id)initFileURLWithFileSystemRepresentation:(const char *)path isDirectory:(BOOL)isDir relativeToURL:(NSURL *)baseURL
@@ -129,6 +165,11 @@ OBJC_PROTOCOL_IMPL_PUSH
 + (id)fileURLWithPath:(NSString *)path isDirectory:(BOOL)isDir
 {
     return [[[self alloc] initFileURLWithPath:path isDirectory:isDir] autorelease];
+}
+
++ (id)fileURLWithPath:(NSString *)path isDirectory:(BOOL)isDir relativeToURL:(NSURL *)baseURL
+{
+    return [[[self alloc] initFileURLWithPath:path isDirectory:isDir relativeToURL:baseURL] autorelease];
 }
 
 + (id)fileURLWithPath:(NSString *)path

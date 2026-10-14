@@ -504,6 +504,25 @@ static inline BOOL _NSFileAccessibleForMode(NSString *path, int mode)
     return urls;
 }
 
+// Darwin's relationship between the two APIs of the same name: NSFileManager's temporaryDirectory
+// IS the URL of NSTemporaryDirectory(), directory-flagged so that the trailing slash Darwin's URL
+// carries is preserved. Deriving it here, rather than naming a directory in this file, is what
+// keeps this accessor and the rest of the runtime's temporary-directory notion from disagreeing --
+// a hardcoded /tmp would silently return a different directory the moment NSTemporaryDirectory()
+// and it stopped agreeing (which they already can: NSTemporaryDirectory() honours TEMPDIR/TMPDIR/
+// TEMP/TMP before its /tmp default, NSPathUtilities.m).
+//
+// What the guest actually gets is therefore whatever its own TMPDIR resolution says, which on this
+// runtime is /tmp/: launchd exports TMPDIR=confstr(_CS_DARWIN_USER_TEMP_DIR) (launchd/src/core.c),
+// confstr falls back through __dirhelper() to TMPDIR and then P_tmpdir (libc/gen/confstr.c), and
+// the guest's /tmp is a real directory in the prefix. The oracle next to this fix measures the
+// path, the trailing slash, the directory-ness and the existence of the result rather than
+// asserting any of them from here.
+- (NSURL *)temporaryDirectory
+{
+    return [NSURL fileURLWithPath:NSTemporaryDirectory() isDirectory:YES];
+}
+
 - (NSArray *)URLsForDirectory:(NSSearchPathDirectory)directory inDomains:(NSSearchPathDomainMask)domainMask {
     // Only NSUserDomain is supported on iOS
     if (domainMask != NSUserDomainMask)
