@@ -2481,25 +2481,6 @@ static BOOL _NSScanStringValue(NSString *self, NSNumericValueType type, NSNumeri
     return [self lengthOfBytesUsingEncoding:__NSDefaultCStringEncoding()];
 }
 
-- (NSString *) stringByRemovingPercentEncoding
-{
-    return [self stringByReplacingPercentEscapesUsingEncoding: NSUTF8StringEncoding];
-}
-
-- (NSString *)stringByAddingPercentEscapesUsingEncoding:(NSStringEncoding)enc
-{
-    CFStringEncoding cfEnc = CFStringConvertNSStringEncodingToEncoding(enc);
-    NSString *escapedStr = (NSString *)CFURLCreateStringByAddingPercentEscapes(NULL, (CFStringRef)self, NULL, NULL, cfEnc);
-    return [escapedStr autorelease];
-}
-
-- (NSString *)stringByReplacingPercentEscapesUsingEncoding:(NSStringEncoding)enc
-{
-    CFStringEncoding cfEnc = CFStringConvertNSStringEncodingToEncoding(enc);
-    NSString *escapedStr = (NSString *)CFURLCreateStringByReplacingPercentEscapesUsingEncoding(NULL, (CFStringRef)self, (CFStringRef)@"", cfEnc);
-    return [escapedStr autorelease];
-}
-
 - (BOOL)writeToFile:(NSString *)path atomically:(BOOL)atomically
 {
     return [self writeToFile:path atomically:atomically encoding:__NSDefaultCStringEncoding() error:NULL];
@@ -2525,6 +2506,147 @@ static BOOL _NSScanStringValue(NSString *self, NSNumericValueType type, NSNumeri
     self = [self _initWithDataOfUnknownEncoding:data];
     [data release];
     return self;
+}
+
+@end
+
+/*
+ * NSString(NSURLUtilities), declared in Foundation/NSURL.h.
+ *
+ * The workload's wall: PackedPaths' +[PackedPathEntry entryWithParent:bytes:length:] builds a string
+ * from UTF-8 bytes and sends it -stringByAddingPercentEncodingWithAllowedCharacters: with
+ * +[NSCharacterSet URLPathAllowedCharacterSet] (measured by disassembling that method's call site:
+ * PackedPaths 0x1078 loads URLPathAllowedCharacterSet, 0x1093 loads this selector off the string
+ * built at 0x1073).  The receiver's class is __NSCFString, which in this tree reaches the NSString
+ * methods through the class_setSuperclass(__NSCFString, NSMutableString) bridge that Foundation's
+ * NSPlatform_Apportable.m installs at load time -- the same route that already answers the sibling
+ * -stringByRemovingPercentEncoding / -stringByAddingPercentEscapesUsingEncoding: above.
+ *
+ * The algorithm is the tree's own, not an invention: it is the port of
+ * _CFStringCreateByAddingPercentEncodingWithAllowedCharacters in this checkout's
+ * CoreFoundation/URL.subproj/CFURLComponents_URIParser.c (the swift-corelibs-foundation submodule),
+ * which the deployed CoreFoundation does not build.  Its two branches are kept:
+ *
+ *   * the URLPathAllowed set carries path-component rules a plain membership test cannot express --
+ *     ';' is always percent-encoded (rfc1808 compatibility) and ':' is percent-encoded only BEFORE
+ *     the first '/' (the same rules CFURLComponents applies to a path it parses);
+ *   * every other set is a 7-bit membership test, which is also what Apple's NSURL.h documents
+ *     ("Any characters in allowedCharacters outside of the 7-bit ASCII range are ignored") with the
+ *     encoded bytes taken from the receiver's UTF-8 representation.
+ */
+@implementation NSString (NSURLUtilities)
+
+- (NSString *)stringByAddingPercentEncodingWithAllowedCharacters:(NSCharacterSet *)allowedCharacters
+{
+    static const unsigned char hexchars[] = "0123456789ABCDEF";
+    CFStringRef string = (CFStringRef)self;
+    CFIndex inLength = CFStringGetLength(string);
+
+    if (inLength == 0) {
+        // No characters? Nothing to percent-encode (the CF source's own empty-input answer).
+        return [[self copy] autorelease];
+    }
+
+    // kCFNotFound comes back when the bound would be too big to represent.
+    CFIndex maxBufferSize = CFStringGetMaximumSizeForEncoding(inLength, kCFStringEncodingUTF8);
+    if (maxBufferSize == kCFNotFound) {
+        return nil;
+    }
+
+    // The CF source sizes one input area of maxBufferSize and an output area of 3x that (a byte can
+    // expand to "%XX"), so the two fit in a single 4x-maxBufferSize allocation.
+    unsigned char *buffer = (unsigned char *)malloc(maxBufferSize * 4);
+    if (buffer == NULL) {
+        return nil;
+    }
+    unsigned char *inBuf = buffer;
+    unsigned char *outBuf = buffer + maxBufferSize;
+
+    CFIndex charsConverted = 0;
+    CFIndex inLen = 0;
+    charsConverted = CFStringGetBytes(string, CFRangeMake(0, inLength), kCFStringEncodingUTF8, 0, false,
+                                      inBuf, maxBufferSize, &inLen);
+    if (charsConverted == 0) {
+        free(buffer);
+        return nil;
+    }
+
+    // Identity is enough to recognise the tree's path set: +[NSCharacterSet URLPathAllowedCharacterSet]
+    // answers a cached immutable singleton (CoreFoundation's NSCharacterSet.m).
+    BOOL isPathAllowedSet = (allowedCharacters != nil) &&
+                            (allowedCharacters == [NSCharacterSet URLPathAllowedCharacterSet]);
+
+    unsigned char *inBytePtr = inBuf;
+    unsigned char *outBytePtr = outBuf;
+    CFIndex idx;
+
+    if (isPathAllowedSet) {
+        BOOL pastSlash = NO;
+        for (idx = 0; idx < inLen; ++idx) {
+            unsigned char ch = *inBytePtr++;
+            BOOL allowed;
+            if (pastSlash) {
+                allowed = (ch <= 127) && (ch != ';') &&
+                          [allowedCharacters characterIsMember:(unichar)ch];
+            } else {
+                if (ch == '/') {
+                    pastSlash = YES;
+                }
+                allowed = (ch <= 127) && (ch != ';') && (ch != ':') &&
+                          [allowedCharacters characterIsMember:(unichar)ch];
+            }
+            if (allowed) {
+                *outBytePtr++ = ch;
+            } else {
+                *outBytePtr++ = '%';
+                *outBytePtr++ = hexchars[ch >> 4];
+                *outBytePtr++ = hexchars[ch & 0x0f];
+            }
+        }
+    } else {
+        for (idx = 0; idx < inLen; ++idx) {
+            unsigned char ch = *inBytePtr++;
+            BOOL allowed = (ch <= 127) && (allowedCharacters != nil) &&
+                           [allowedCharacters characterIsMember:(unichar)ch];
+            if (allowed) {
+                *outBytePtr++ = ch;
+            } else {
+                *outBytePtr++ = '%';
+                *outBytePtr++ = hexchars[ch >> 4];
+                *outBytePtr++ = hexchars[ch & 0x0f];
+            }
+        }
+    }
+
+    CFStringRef result = CFStringCreateWithBytes(kCFAllocatorDefault, outBuf, outBytePtr - outBuf,
+                                                 kCFStringEncodingUTF8, false);
+    free(buffer);
+    return [(NSString *)result autorelease];
+}
+
+/*
+ * The family's other three members.  They are the NSString(NSURLUtilities) neighbours of the method
+ * above, so they live in this category rather than in NSStringDeprecated, where only this tree's own
+ * header had put them; the bodies are unchanged, and the two that decode still reduce to the tree's CF
+ * percent-decoding machinery.
+ */
+- (NSString *) stringByRemovingPercentEncoding
+{
+    return [self stringByReplacingPercentEscapesUsingEncoding: NSUTF8StringEncoding];
+}
+
+- (NSString *)stringByAddingPercentEscapesUsingEncoding:(NSStringEncoding)enc
+{
+    CFStringEncoding cfEnc = CFStringConvertNSStringEncodingToEncoding(enc);
+    NSString *escapedStr = (NSString *)CFURLCreateStringByAddingPercentEscapes(NULL, (CFStringRef)self, NULL, NULL, cfEnc);
+    return [escapedStr autorelease];
+}
+
+- (NSString *)stringByReplacingPercentEscapesUsingEncoding:(NSStringEncoding)enc
+{
+    CFStringEncoding cfEnc = CFStringConvertNSStringEncodingToEncoding(enc);
+    NSString *escapedStr = (NSString *)CFURLCreateStringByReplacingPercentEscapesUsingEncoding(NULL, (CFStringRef)self, (CFStringRef)@"", cfEnc);
+    return [escapedStr autorelease];
 }
 
 @end

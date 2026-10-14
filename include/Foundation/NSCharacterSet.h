@@ -28,9 +28,12 @@ enum {
 + (id)newlineCharacterSet;
 /*
  * The URL component/subcomponent sets that -stringByAddingPercentEncodingWithAllowedCharacters:
- * consumes, declared as Apple's Foundation does (NSCharacterSet(NSURLUtilities)).
+ * consumes, declared as Apple's Foundation does (NSCharacterSet(NSURLUtilities)).  Only the two the
+ * workload's load closure references are carried: the path set (PackedPaths, DevToolsCore,
+ * ContentDelivery, DVTInstrumentsFoundation) and the query set (IDEFoundation, DVTSourceControl).
  */
 + (id)URLPathAllowedCharacterSet;
++ (id)URLQueryAllowedCharacterSet;
 + (id)characterSetWithRange:(NSRange)range;
 + (id)characterSetWithCharactersInString:(NSString *)string;
 + (id)characterSetWithBitmapRepresentation:(NSData *)data;
