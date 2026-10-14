@@ -7,10 +7,13 @@
 
 #import <CoreFoundation/CFNumberFormatter.h>
 #import <Foundation/NSNumberFormatter.h>
+#import <Foundation/NSAttributedString.h>
+#import <Foundation/NSDecimalNumber.h>
 #import <Foundation/NSDictionary.h>
 #import <Foundation/NSError.h>
 #import <Foundation/NSString.h>
 #import <Foundation/NSLocale.h>
+#import <dispatch/dispatch.h>
 
 @implementation NSNumberFormatter
 
@@ -672,6 +675,179 @@ if (_formatter != NULL) { \
 - (void)setMaximumSignificantDigits:(NSUInteger)number
 {
     SET_UNSIGNEDINTEGER(kCFNumberFormatterMaxSignificantDigits, number);
+}
+
+/* ---------------------------------------------------------------------------------------------------
+ * NSNumberFormatterCompatibility -- the macOS-only 10.0-era accessors declared by the Apple SDK (and
+ * now re-declared by this tree's own header, in the category the SDK declares them in).
+ *
+ * WHY THEY ARE HERE, MEASURED. Xcode 26.3's initial plug-in scan completes and xcodebuild then dies
+ * inside its own error-printing path with
+ *   "Uncaught Exception: -[NSNumberFormatter setHasThousandSeparators:]: unrecognized selector sent
+ *    to instance 0x..."
+ * from SharedFrameworks/DVTInstrumentsUtilities.framework/Versions/A/DVTInstrumentsUtilities
+ * (sha256 ef40c0e5bafa5be8454f535f36347e558f311cd14dae3b5c9e77f494591a8ac5), whose
+ * `HexFormatStyle` static initializer (dispatch_once) does
+ *   13f04: [fmt setNumberStyle:]           edx=1        (NSNumberFormatterDecimalStyle)
+ *   13f19: [fmt setUsesGroupingSeparator:] edx=1
+ *   13f2e: [fmt setHasThousandSeparators:] edx=1        <-- the fatal send
+ * and, in a second factory,
+ *   14022/14037/1404e: the same three, then
+ *   14058: [fmt setMinimumFractionDigits:] rdx=<arg>
+ *   14068: [fmt setMaximumFractionDigits:] edx=4
+ * The three BOOL sends sit on the SAME receiver, so the caller plainly treats the thousand separator
+ * as the grouping separator by another name; setNumberStyle:, setUsesGroupingSeparator: and
+ * setMinimum/MaximumFractionDigits: already existed here, so setHasThousandSeparators: alone was the
+ * wall in that image. The same image also contains selrefs for setLocalizesFormat: and setFormat:,
+ * and the plug-in set (IDEInterfaceBuilderCocoaIntegration, CocoaPlugin, InstrumentsPlugIn,
+ * DebuggerUI, InstrumentsKit, IDESwiftPackageUI, SpatialInspectorXcodePlugin, MLShared,
+ * RealityToolKit, RealityToolsShared, SourceEditorPlugin) references the whole block -- the IB
+ * plug-ins enumerate every property of the class -- so the family was implemented whole rather than
+ * one selector at a time.
+ *
+ * WHAT THE SEMANTICS ARE GROUNDED IN. Apple's own swift-corelibs-foundation, vendored in this tree at
+ * src/external/corefoundation/submodules/swift-corelibs-foundation/Sources/Foundation/
+ * NumberFormatter.swift, implements exactly this block (lines 956-1119): every member is stored
+ * per-instance state -- none of hasThousandSeparators, thousandSeparator, localizesFormat,
+ * isPartialStringValidationEnabled, attributedStringForZero/Nil/NotANumber or roundingBehavior is
+ * pushed into the CFNumberFormatter -- with the defaults `hasThousandSeparators = false`,
+ * `localizesFormat = true`, `attributedStringForZero = NSAttributedString("0")`,
+ * `attributedStringForNil = NSAttributedString("")`,
+ * `attributedStringForNotANumber = NSAttributedString("NaN")`, `roundingBehavior =
+ * NSDecimalNumberHandler.default`, `thousandSeparator = nil`. That is what is reproduced here, in
+ * this file's own `_attributes` storage (which already holds `allowsFloats`, `style`, `locale` and
+ * `formatterBehavior` the same way -- stored, and not all of them applied by _regenerateFormatter).
+ *
+ * SETFORMAT:, MEASURED AND NOT GUESSED. The literal pool of DVTInstrumentsUtilities contains the
+ * ICU patterns "#,##0.00" and "#,##0", and the calls are `[fmt setFormat:@"#,##0.00"]`-shaped (the
+ * string is the second argument of the send). `_regenerateFormatter` already had the hook
+ * `_attributes[@"format"] -> CFNumberFormatterSetFormat` with no accessor to reach it, so `format` is
+ * that hook made live: the value is stored as given and applied as the formatter's pattern.
+ * NOTE, because it is the kind of thing a reader will otherwise trip over: this class ALSO declared
+ * `@property (copy) NSString *format;` in its main @interface, so the compiler AUTO-SYNTHESIZED
+ * -format/-setFormat: and a private `_format` ivar; the runtime therefore already answered setFormat:
+ * before this change, it just stored the string in an ivar nothing read. That declaration has been
+ * removed from the main interface (Apple declares this property only in the compatibility category),
+ * and the accessors below are the ones that take effect.
+ *
+ * WHAT COULD NOT BE ESTABLISHED, stated rather than papered over:
+ *   - Whether Darwin additionally mirrors hasThousandSeparators/thousandSeparator into
+ *     usesGroupingSeparator/groupingSeparator. Apple's own corelibs implementation does NOT (it
+ *     stores them), so this stores them too; the measured caller sets BOTH properties, so the
+ *     grouping behaviour it asks for is what it asks for either way. No macOS oracle is available
+ *     here to settle it.
+ *   - Darwin's exact `-format` getter shape: corelibs synthesizes "positive;zero;negative", the
+ *     measured callers only ever pass a single-component pattern, and this returns the value as set.
+ *   - Whether Darwin enforces `localizesFormat`. It is inert here for the same reason as in corelibs.
+ *   - `roundingBehavior` is declared `copy`, but this tree's NSDecimalNumberHandler does not declare
+ *     NSCopying (unlike Darwin's), so the given instance is stored, exactly as every other object
+ *     accessor in this file stores its argument.
+ * ------------------------------------------------------------------------------------------------- */
+
+/* The three attributed-string defaults are created once for the process and shared: a formatter that
+ * is never asked for one must not pay for it, and every formatter that is asked must get the same
+ * object, because nothing here is per-instance state until a caller sets it. */
+static NSAttributedString *_NSNumberFormatterDefaultAttributedStringForZero;
+static NSAttributedString *_NSNumberFormatterDefaultAttributedStringForNil;
+static NSAttributedString *_NSNumberFormatterDefaultAttributedStringForNotANumber;
+static dispatch_once_t _NSNumberFormatterCompatibilityDefaultsOnce;
+
+static void _NSNumberFormatterMakeCompatibilityDefaults(void)
+{
+    dispatch_once(&_NSNumberFormatterCompatibilityDefaultsOnce, ^{
+        _NSNumberFormatterDefaultAttributedStringForZero = [[NSAttributedString alloc] initWithString:@"0"];
+        _NSNumberFormatterDefaultAttributedStringForNil = [[NSAttributedString alloc] initWithString:@""];
+        _NSNumberFormatterDefaultAttributedStringForNotANumber = [[NSAttributedString alloc] initWithString:@"NaN"];
+    });
+}
+
+- (BOOL)hasThousandSeparators
+{
+    return [_attributes[@"hasThousandSeparators"] boolValue];
+}
+
+- (void)setHasThousandSeparators:(BOOL)b
+{
+    _attributes[@"hasThousandSeparators"] = @(b);
+}
+
+- (NSString *)thousandSeparator
+{
+    return _attributes[@"thousandSeparator"];
+}
+
+- (void)setThousandSeparator:(NSString *)string
+{
+    _attributes[@"thousandSeparator"] = [string copy];
+}
+
+- (BOOL)localizesFormat
+{
+    id value = _attributes[@"localizesFormat"];
+    return value != nil ? [value boolValue] : YES;
+}
+
+- (void)setLocalizesFormat:(BOOL)b
+{
+    _attributes[@"localizesFormat"] = @(b);
+}
+
+- (NSString *)format
+{
+    return _attributes[@"format"];
+}
+
+- (void)setFormat:(NSString *)format
+{
+    _attributes[@"format"] = [format copy];
+    [self _reset];
+}
+
+- (NSAttributedString *)attributedStringForZero
+{
+    _NSNumberFormatterMakeCompatibilityDefaults();
+    id value = _attributes[@"attributedStringForZero"];
+    return value != nil ? value : _NSNumberFormatterDefaultAttributedStringForZero;
+}
+
+- (void)setAttributedStringForZero:(NSAttributedString *)string
+{
+    _attributes[@"attributedStringForZero"] = [string copy];
+}
+
+- (NSAttributedString *)attributedStringForNil
+{
+    _NSNumberFormatterMakeCompatibilityDefaults();
+    id value = _attributes[@"attributedStringForNil"];
+    return value != nil ? value : _NSNumberFormatterDefaultAttributedStringForNil;
+}
+
+- (void)setAttributedStringForNil:(NSAttributedString *)string
+{
+    _attributes[@"attributedStringForNil"] = [string copy];
+}
+
+- (NSAttributedString *)attributedStringForNotANumber
+{
+    _NSNumberFormatterMakeCompatibilityDefaults();
+    id value = _attributes[@"attributedStringForNotANumber"];
+    return value != nil ? value : _NSNumberFormatterDefaultAttributedStringForNotANumber;
+}
+
+- (void)setAttributedStringForNotANumber:(NSAttributedString *)string
+{
+    _attributes[@"attributedStringForNotANumber"] = [string copy];
+}
+
+- (NSDecimalNumberHandler *)roundingBehavior
+{
+    id value = _attributes[@"roundingBehavior"];
+    return value != nil ? value : [NSDecimalNumberHandler defaultDecimalNumberHandler];
+}
+
+- (void)setRoundingBehavior:(NSDecimalNumberHandler *)behavior
+{
+    _attributes[@"roundingBehavior"] = behavior;
 }
 
 - (void)_reset

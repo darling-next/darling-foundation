@@ -56,7 +56,10 @@ typedef struct __CFNumberFormatter* CFNumberFormatterRef;
 - (void)setGeneratesDecimalNumbers:(BOOL)b;
 - (NSNumberFormatterBehavior)formatterBehavior;
 - (void)setFormatterBehavior:(NSNumberFormatterBehavior)behavior;
-@property (copy) NSString *format;
+/* `format` is NOT declared here: Apple declares it in the NSNumberFormatterCompatibility category at
+ * the end of this header, which is where it belongs, and this class used to carry it here as well --
+ * which silently AUTO-SYNTHESIZED -format/-setFormat: and a private ivar that no accessor touched,
+ * so the runtime answered setFormat: and nothing happened. See that category and src/NSNumberFormatter.m. */
 - (NSString *)negativeFormat;
 - (void)setNegativeFormat:(NSString *)format;
 - (NSDictionary *)textAttributesForNegativeValues;
@@ -161,5 +164,38 @@ typedef struct __CFNumberFormatter* CFNumberFormatterRef;
 - (void)setMaximumSignificantDigits:(NSUInteger)number;
 - (BOOL)isPartialStringValidationEnabled;
 - (void)setPartialStringValidationEnabled:(BOOL)b;
+
+@end
+
+/*
+ * The macOS-only 10.0-era accessors Apple still declares in the SDK this guest compiles against
+ * (MacOSX.sdk/.../Foundation.framework/Versions/C/Headers/NSNumberFormatter.h, in the
+ * `@interface NSNumberFormatter (NSNumberFormatterCompatibility)` block), which this tree declared
+ * nowhere and implemented nowhere. Xcode 26.3 sends them: DVTInstrumentsUtilities'
+ * `DVTInstrumentsUtilities.HexFormatStyle` static initializer sends setHasThousandSeparators: on a
+ * fresh NSNumberFormatter, which raised `unrecognized selector` and aborted xcodebuild through
+ * _Xcode3CommandLineToolHandleException; the same image and several plug-ins also send
+ * setLocalizesFormat:, setFormat:, setThousandSeparator:, setAttributedStringFor*: and read
+ * hasThousandSeparators/localizesFormat/thousandSeparator/format/attributedStringForZero. The block
+ * is reproduced here in the shape the SDK declares it, so the class's own header is again the
+ * declaration of record. See src/NSNumberFormatter.m for the measured call sites, the defaults and
+ * the semantics that could and could not be established.
+ */
+@class NSAttributedString, NSDecimalNumberHandler;
+
+@interface NSNumberFormatter (NSNumberFormatterCompatibility)
+
+@property BOOL hasThousandSeparators;
+@property (null_resettable, copy) NSString *thousandSeparator;
+
+@property BOOL localizesFormat;
+
+@property (copy) NSString *format;
+
+@property (copy) NSAttributedString *attributedStringForZero;
+@property (copy) NSAttributedString *attributedStringForNil;
+@property (copy) NSAttributedString *attributedStringForNotANumber;
+
+@property (copy) NSDecimalNumberHandler *roundingBehavior;
 
 @end
