@@ -226,3 +226,60 @@ static NSArray *_NSByteCountFormatterUnits;
 }
 
 @end
+
+/*
+ * NSLocalizedFileSizeDescription(size, maximumDisplayedValue, options) -- the C entry point of the
+ * NSByteCountFormatter family, and the one strong eager Foundation import that stops Xcode 26.3's
+ * iOS plug-in from loading (bead dar-liaq, rung unmet-eager-closure):
+ *
+ *   dlopen(.../PlugIns/IDEiOSSupportCore.framework/IDEiOSSupportCore):
+ *     Symbol not found: _NSLocalizedFileSizeDescription
+ *     Referenced from: .../SharedFrameworks/DTDeviceKitBase.framework/Versions/A/DTDeviceKitBase
+ *     Expected in: /System/Library/Frameworks/Foundation.framework/Versions/C/Foundation
+ *
+ * WHERE THE DECLARATION AND THE BODY COME FROM (read, not guessed):
+ *
+ *  * the symbol is Apple's own Foundation export -- the SDK's Foundation.tbd lists both
+ *    `_NSLocalizedFileSizeDescription` and `__NSLocalizedFileSizeDescription` among
+ *    /System/Library/Frameworks/Foundation.framework/Versions/C/Foundation's exports -- and its
+ *    prototype is in Apple's internal `Foundation/NSFileSizeFormatter.h`, which the SDK does not
+ *    ship; the tree's own vendored copy of that declaration,
+ *    src/external/WebCore/PAL/pal/spi/cocoa/NSFileSizeFormatterSPI.h, has
+ *    `typedef uint64_t NSFileSizeFormatterOptions; extern "C" NSString *
+ *    NSLocalizedFileSizeDescription(uint64_t size, uint64_t maximumDisplayedValue,
+ *    NSFileSizeFormatterOptions);` and the same tree calls it as the *file* size formatter
+ *    (PAL/pal/cocoa/FileSizeFormatterCocoa.mm: `return NSLocalizedFileSizeDescription(size, 0, 0);`),
+ *    with PAL/pal/FileSizeFormatter.cpp carrying the non-Cocoa fallback of the same shape
+ *    ("N bytes", "X.Y KB", "X.Y MB", "X.Y GB", decimal steps of 1000).
+ *  * that is the same user-visible answer this tree's own NSByteCountFormatter produces with the
+ *    FILE count style (NSByteCountFormatterCountStyleFile -> steps of 1000; `stringFromByteCount:`
+ *    above is the value's own formatter), which is why this is implemented beside that sibling
+ *    rather than re-derived: the demanded member is the C face of the same operation.
+ *
+ * ONE MEASURED CALLER, and what it passes.  `-[DTDKFileSizeTransformer transformedValue:]`
+ * (x86_64 slice of the sha256 69832aa102764bbb54363ab7d76997d28e950d38ba195c7668688510b1cfbb15
+ * binary named above) is the image's only reference and tail-calls this entry point:
+ *
+ *   4f27e: movq   %rdx, %rdi                       ; value = transformedValue:'s argument
+ *   4f281: movq   <selref vm+0x935e8>, %rsi        ; DTDK_safeUnsignedLongLongValue
+ *   4f288: callq  *<objc_msgSend>                  ; the uint64 byte count
+ *   4f28e: movl   $0x280000, %edx                  ; options
+ *   4f293: movq   %rax, %rdi                       ; size
+ *   4f296: xorl   %esi, %esi                       ; maximumDisplayedValue = 0
+ *   4f299: jmpq   _NSLocalizedFileSizeDescription
+ *
+ * so the argument shape is (uint64_t size, 0, 0x280000) -- the same `maximumDisplayedValue = 0` the
+ * tree's own WebKit caller passes, i.e. no maximum.  The two trailing arguments are ACCEPTED AND NOT
+ * INTERPRETED: Apple's header that gives the option bits their meaning is not in the SDK and the one
+ * measured caller's values establish no behaviour for them, so nothing here guesses a cap or a unit
+ * style from a bit pattern.  Only `size` is interpreted, by the sibling above.
+ */
+NSString *NSLocalizedFileSizeDescription(uint64_t size, uint64_t maximumDisplayedValue,
+                                         uint64_t options)
+{
+    (void) maximumDisplayedValue;
+    (void) options;
+
+    return [NSByteCountFormatter stringFromByteCount:(long long) size
+                                           countStyle:NSByteCountFormatterCountStyleFile];
+}
