@@ -971,9 +971,22 @@ SINGLETON_RR()
     }
     if (shouldCopy)
     {
-        id string = [self initWithBytes:bytes length:length encoding:encoding];
-        free(bytes);
-        return string;
+        /*
+         * copy:YES means "copy these bytes, the caller still owns them", and both copy:YES callers
+         * in this class pass the bytes of an NSData that they release themselves
+         * (-_initWithDataOfUnknownEncoding:, and the non-file branch of
+         * -initWithContentsOfURL:usedEncoding:error:).  Freeing them here therefore freed the DATA's
+         * buffer too, and the NSData's own deallocator ran over the same pointer afterwards: the
+         * malloc subsystem detected the double free and abort()ed, so every entry point that reads a
+         * file without naming an encoding was fatal.  MEASURED in the x86_64 guest before this
+         * change: +[NSString stringWithContentsOfFile:] and -[NSString initWithContentsOfFile:] both
+         * died with SIGILL (rc 132), and the core named the chain
+         *   ud2 <- __abort <- malloc_vreport <- free <- NSDataDeallocatorFree_block_invoke_3
+         *       <- -[NSConcreteData dealloc] <- -[NSString(NSStringDeprecated) initWithContentsOfFile:]
+         * The copy:NO branch is the one that owns the bytes, and it says so by handing
+         * freeWhenDone:YES to -initWithBytesNoCopy:.
+         */
+        return [self initWithBytes:bytes length:length encoding:encoding];
     }
     else
     {
