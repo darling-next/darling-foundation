@@ -125,6 +125,28 @@ static void handleNewConnection(xpc_connection_t connection) {
 					default: {
 						// invalid message and/or message sequence
 						FCDLog(@"received invalid message and/or invalid message sequence from client %@ with message %@", connectionObject, xpc_nsdescription(object));
+						// A client that sent this is waiting for an answer, and silence is an unbounded
+						// park: tests/fcd_sync_send_park_guest.c phase 1 sends an empty dictionary, and
+						// this log line used to be the daemon's whole response (the client parked until
+						// its SIGALRM). The protocol has an error reply for exactly this case, so send it.
+						//
+						// The one condition is honest rather than defensive: xpc_dictionary_create_reply
+						// returns NULL when the message carries no reply port (dictionary.m:481), and
+						// then there is no one to answer.
+						//
+						// MEASURED 2026-10-15 (follow-up 10, prefix-verify14): the send below is sound
+						// on the ACCEPTED (server-peer) connection the message arrived on. Instrumenting
+						// libxpc showed srv_peer=1 listener=0 activated=1, mach_ctx non-NULL, both ports
+						// valid, and dispatch_mach_send_with_result returning res=3 err=0; the client's
+						// synchronous send then RETURNED a reply and did not park
+						// ("FCD-VERDICT service=com.apple.FileCoordination lookup_kr=0 parked=0").
+						xpc_object_t reply = xpc_dictionary_create_reply(object);
+						if (reply != NULL) {
+							xpc_dictionary_set_uint64(reply, DaemonMessageTypeKey, DaemonMessageTypeInvalid);
+							xpc_dictionary_set_uint64(reply, DaemonIntentReplyResultKey, DaemonIntentReplyResultError);
+							xpc_connection_send_message(connection, reply);
+							xpc_release(reply);
+						}
 					} break;
 				}
 			} else {
