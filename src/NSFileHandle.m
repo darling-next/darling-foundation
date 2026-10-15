@@ -207,6 +207,14 @@ static NSError *_NSErrorWithFilePath(int code, id path)
     return [NSError errorWithDomain:NSCocoaErrorDomain code:code userInfo:userInfo];
 }
 
+// Same shape as _NSFileIO.m's error for a POSIX failure: the domain is NSPOSIXErrorDomain and the code is the
+// raw errno, which is what a caller that inspects the error (rather than just its presence) checks.
+static NSError *_NSErrorWithPOSIXErrno(int code)
+{
+    return [NSError errorWithDomain:NSPOSIXErrorDomain code:code
+        userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithUTF8String:strerror(code)]}];
+}
+
 @implementation NSFileHandle
 
 + (id)fileHandleWithStandardInput
@@ -465,6 +473,20 @@ static NSError *_NSErrorWithFilePath(int code, id path)
     return -1;
 }
 
+// The NSError-returning variants do not raise NSFileHandleOperationException: reporting the failure through
+// `error` IS the contract. The base class still has to say so, exactly like the mutators above.
+- (BOOL)seekToOffset:(unsigned long long)offset error:(NSError **)error
+{
+    NSRequestConcreteImplementation();
+    return NO;
+}
+
+- (BOOL)getOffset:(unsigned long long *)offsetInFile error:(NSError **)error
+{
+    NSRequestConcreteImplementation();
+    return NO;
+}
+
 @end
 
 @implementation NSConcreteFileHandle
@@ -697,6 +719,40 @@ if ((_flags & NSConcreteFileHandleClosed) != 0) \
     {
         FAIL();
     }
+}
+
+// The NSError-returning variants: same lseek, reported instead of raised. A closed handle reaches the fd as
+// EBADF, which is the error a caller expects for an operation on a closed handle.
+- (BOOL)seekToOffset:(unsigned long long)offset error:(NSError **)error
+{
+    off_t result = lseek(_fd, (off_t)offset, SEEK_SET);
+    if (result == (off_t)-1)
+    {
+        if (error != NULL)
+        {
+            *error = _NSErrorWithPOSIXErrno(errno);
+        }
+        return NO;
+    }
+    return YES;
+}
+
+- (BOOL)getOffset:(unsigned long long *)offsetInFile error:(NSError **)error
+{
+    off_t result = lseek(_fd, 0, SEEK_CUR);
+    if (result == (off_t)-1)
+    {
+        if (error != NULL)
+        {
+            *error = _NSErrorWithPOSIXErrno(errno);
+        }
+        return NO;
+    }
+    if (offsetInFile != NULL)
+    {
+        *offsetInFile = (unsigned long long)result;
+    }
+    return YES;
 }
 
 - (void)truncateFileAtOffset:(unsigned long long)offset
@@ -1346,6 +1402,20 @@ static void NSConcreteFileHandlePerform(void *info)
 
 - (void)seekToFileOffset:(unsigned long long)offset
 {
+}
+
+- (BOOL)seekToOffset:(unsigned long long)offset error:(NSError **)error
+{
+    return YES;
+}
+
+- (BOOL)getOffset:(unsigned long long *)offsetInFile error:(NSError **)error
+{
+    if (offsetInFile != NULL)
+    {
+        *offsetInFile = 0;
+    }
+    return YES;
 }
 
 - (void)truncateFileAtOffset:(unsigned long long)offset

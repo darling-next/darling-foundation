@@ -25,6 +25,10 @@ FOUNDATION_EXPORT NSString * const NSFileHandleNotificationMonitorModes;
 - (void)truncateFileAtOffset:(unsigned long long)offset;
 - (void)synchronizeFile;
 - (void)closeFile;
+// The NSError-returning variants of the mutators above (macOS 10.15+). They exist so a caller can handle a
+// failure without an exception, which is why Xcode's build-log machinery selects them by selector name.
+- (BOOL)seekToOffset:(unsigned long long)offset error:(NSError **)error;
+- (BOOL)getOffset:(unsigned long long *)offsetInFile error:(NSError **)error;
 
 @end
 
