@@ -200,12 +200,37 @@
 - (void)object:(NSObject *)object withObservance:(NSKeyValueObservance *)observance didChangeValueForKeyOrKeys:(id)keyOrKeys recurse:(BOOL)shouldRecurse forwardingValues:(NSKeyValueForwardingValues)forwardingValues
 {
 
+    // `recursedMutableDictionary` maps the key path of ONE OF self.affectingProperties -- the string
+    // -willChangeValueForKeyOrKeys: stored is the key path that property itself answered with, i.e. its own
+    // `keyPath` -- to that property's FORWARDING VALUE, never to the property: for a nested property it is
+    // the related object and [NSNull null] when the relationship is nil (NSKeyValueNestedProperty
+    // -willChangeValueForKeyOrKeys: sets `_field1 = [object valueForKey:self.relationshipKey] ?: [NSNull null]`).
+    // So the RECEIVER has to be resolved from the key path; sending the property's own selector to the stored
+    // value aborts with an unrecognized selector the first time this loop runs at all -- measured 2026-10-15:
+    // `-[IDESchemeActionResult setLog:]` -> KVO -> an affecting NESTED key path whose relationship object is
+    // nil, so the value was NSNull, and the abort was
+    // `-[NSNull object:withObservance:didChangeValueForKeyOrKeys:recurse:forwardingValues:]`.
+    // The stored value is forwarded as the new forwarding value, which is what the nested property reads it as
+    // (its `nextObject`: the object the implicit observance is removed from) and it already handles NSNull.
     for (NSString *key in forwardingValues.recursedMutableDictionary)
     {
-        NSKeyValueProperty *value = forwardingValues.recursedMutableDictionary[key];
-        NSKeyValueForwardingValues newValues = { ._field1 = value, .recursedMutableDictionary = nil}; // this makes no sense except in the context of the leaf of a nested key path depended on by an unnested key. Yeesh. 
-                                                                                                      // there has GOT to be a more elegant way to do this. 
-        [value object:object withObservance:observance didChangeValueForKeyOrKeys:keyOrKeys recurse:NO forwardingValues:newValues];
+        NSKeyValueProperty *affectedProperty = nil;
+        for (NSKeyValueProperty *affectingProperty in self.affectingProperties)
+        {
+            if ([affectingProperty.keyPath isEqual:key])
+            {
+                affectedProperty = affectingProperty;
+                break;
+            }
+        }
+        if (affectedProperty == nil)
+        {
+            // Not one of ours: the dictionary is built per level and merged across levels, so an entry can
+            // belong to a deeper object's property graph. It is consumed by the level that owns it.
+            continue;
+        }
+        NSKeyValueForwardingValues newValues = { ._field1 = forwardingValues.recursedMutableDictionary[key], .recursedMutableDictionary = nil};
+        [affectedProperty object:object withObservance:observance didChangeValueForKeyOrKeys:keyOrKeys recurse:NO forwardingValues:newValues];
     }
 }
 
