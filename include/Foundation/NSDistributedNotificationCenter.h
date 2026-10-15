@@ -39,6 +39,8 @@ typedef NS_OPTIONS(NSUInteger, NSDistributedNotificationOptions) {
 @interface NSDistributedNotificationCenter : NSNotificationCenter
 {
 	BOOL _suspended;
+	// Notifications held while the centre is suspended, delivered on resume.
+	NSMutableArray *_heldNotifications;
 }
 
 @property BOOL suspended;
