@@ -525,19 +525,9 @@ NSHashInsertIfAbsent(NSHashTable *table, const void *element)
 }
 
 /**
- * Adds the element to table.<br />
- * If an equal element is already present, leaves the table unchanged (it does NOT raise:
- * see the note below).<br />
- * If element is null raises an NSInvalidArgumentException.
- *
- * The "known absent" name is a PROMISE FROM THE CALLER, and Apple's shipped Foundation does not
- * enforce it: Xcode 26.3's IDEFoundation inserts through this function in a hot path
- * (IDEActivityLogMessageSharedString -> -[IDEActivityLogMultiPieceStringContext
- * stringBySharingStructure:] -> enumerateInterestingRangesOfString:usingBlock:) and works on Apple
- * platforms, so a duplicate must be tolerated rather than fatal. Raising here aborted the minimal
- * project build: guest stack `NSHashInsertKnownAbsent (Foundation)` -> `__66-[IDEActivityLogMultiPiece
- * StringContext stringBySharingStructure:]_block_invoke_2 (IDEFoundation)` -> SIGILL, XCB_RC=132.
- * Evidence: evidence/ios-ci-rung/round51/FINDINGS.md and the run bundle captures.
+ * Adds the element to table and returns nul.<br />
+ * If an equal element is already present, raises NSInvalidArgumentException.
+ * <br />If element is null raises an NSInvalidArgumentException.
  */
 void
 NSHashInsertKnownAbsent(NSHashTable *table, const void *element)
@@ -563,12 +553,24 @@ NSHashInsertKnownAbsent(NSHashTable *table, const void *element)
 	  GSIMapAddKey(t, (GSIMapKey)element);
 	  ((NSConcreteHashTable*)table)->version++;
 	}
+      else
+	{
+	  [NSException raise: NSInvalidArgumentException
+		      format: @"NSHashInsertKnownAbsent ... item not absent"];
+	}
     }
   else
     {
-      if ([table member: (id)element] == nil)
+      id	old = [table member: (id)element];
+
+      if (old == nil)
 	{
 	  [table addObject: (id)element];
+	}
+      else
+	{
+	  [NSException raise: NSInvalidArgumentException
+		      format: @"NSHashInsertKnownAbsent ... item not absent"];
 	}
     }
 }
