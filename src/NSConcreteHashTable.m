@@ -977,6 +977,14 @@ const NSHashTableCallBacks NSOwnedObjectIdentityHashCallBacks =
     }
   self->cb.pf.acquireFunction = functions.acquireFunction;
   self->cb.pf.descriptionFunction = functions.descriptionFunction;
+  /* The hash function was NOT copied here, while isEqualFunction was: the table then hashed members by
+   * POINTER (pointerFunctionsHash falls back to the address when hashFunction is 0) but compared them with
+   * the personality's isEqual, so an isEqual-equal member was looked up in the wrong bucket and reported
+   * absent -- NSHashGet answered "not present" and NSHashInsertKnownAbsent added a second copy instead of
+   * finding the first. MEASURED: evidence/ios-ci-rung/round51/NSHashTableContractTest.swift case A5b plus
+   * its part D, which printed table hash=nil / equal=<the object pair> next to a reference
+   * NSPointerFunctions whose hash was non-nil, in the round's hash-contract-callbacks.log. */
+  self->cb.pf.hashFunction = functions.hashFunction;
   self->cb.pf.isEqualFunction = functions.isEqualFunction;
   self->cb.pf.relinquishFunction = functions.relinquishFunction;
   self->cb.pf.sizeFunction = functions.sizeFunction;
@@ -1024,6 +1032,9 @@ const NSHashTableCallBacks NSOwnedObjectIdentityHashCallBacks =
 
   p.acquireFunction = self->cb.pf.acquireFunction;
   p.descriptionFunction = self->cb.pf.descriptionFunction;
+  /* Same omission as the initializer had: without this the object handed back reports hash=nil while its
+   * isEqualFunction is the personality's (measured in the round's hash-contract-callbacks.log). */
+  p.hashFunction = self->cb.pf.hashFunction;
   p.isEqualFunction = self->cb.pf.isEqualFunction;
   p.relinquishFunction = self->cb.pf.relinquishFunction;
   p.sizeFunction = self->cb.pf.sizeFunction;
