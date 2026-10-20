@@ -69,11 +69,125 @@
 }
 
 /*
-- (NSString *)description
+ * Walk a regular-expression pattern and return the capture-group index of the
+ * group named `name`, or -1.  ICU numbers capture groups by their opening
+ * parenthesis order and gives every named group (?<name>...) its own number.
+ * Escapes, character classes and the non-capturing (?: (?= (?! (?<= (?<! (?# and
+ * inline-flag groups do not consume a number, and a lookbehind's trailing '=' or
+ * '!' is not a group name.
+ */
+static NSInteger _NSRegexCaptureGroupIndexForName(NSString *pattern, NSString *name)
 {
+    NSUInteger length = [pattern length];
+    NSUInteger idx = 0;
+    NSInteger group = 0;
 
+    while (idx < length)
+    {
+        unichar ch = [pattern characterAtIndex:idx];
+
+        if (ch == '\\')
+        {
+            idx += 2;
+            continue;
+        }
+
+        if (ch == '[')
+        {
+            idx++;
+            if (idx < length && [pattern characterAtIndex:idx] == '^')
+            {
+                idx++;
+            }
+            while (idx < length)
+            {
+                unichar cls = [pattern characterAtIndex:idx];
+                if (cls == '\\')
+                {
+                    idx += 2;
+                    continue;
+                }
+                idx++;
+                if (cls == ']')
+                {
+                    break;
+                }
+            }
+            continue;
+        }
+
+        if (ch != '(')
+        {
+            idx++;
+            continue;
+        }
+
+        if (idx + 1 < length && [pattern characterAtIndex:idx + 1] == '?')
+        {
+            unichar kind = (idx + 2 < length) ? [pattern characterAtIndex:idx + 2] : 0;
+            if (kind == '<' && idx + 3 < length)
+            {
+                unichar after = [pattern characterAtIndex:idx + 3];
+                if (after != '=' && after != '!')
+                {
+                    NSRange tail = NSMakeRange(idx + 3, length - (idx + 3));
+                    NSRange close = [pattern rangeOfString:@">" options:0 range:tail];
+                    if (close.location != NSNotFound)
+                    {
+                        NSString *candidate = [pattern substringWithRange:NSMakeRange(idx + 3, close.location - (idx + 3))];
+                        group += 1;
+                        if ([candidate isEqualToString:name])
+                        {
+                            return group;
+                        }
+                        idx = close.location + 1;
+                        continue;
+                    }
+                }
+            }
+            else if (kind == '\'' && idx + 3 < length)
+            {
+                NSRange tail = NSMakeRange(idx + 3, length - (idx + 3));
+                NSRange close = [pattern rangeOfString:@"'" options:0 range:tail];
+                if (close.location != NSNotFound)
+                {
+                    NSString *candidate = [pattern substringWithRange:NSMakeRange(idx + 3, close.location - (idx + 3))];
+                    group += 1;
+                    if ([candidate isEqualToString:name])
+                    {
+                        return group;
+                    }
+                    idx = close.location + 1;
+                    continue;
+                }
+            }
+            idx += 2;
+            continue;
+        }
+
+        group += 1;
+        idx++;
+    }
+
+    return -1;
 }
-*/
+
+- (NSRange)rangeWithName:(NSString *)name
+{
+    if (name == nil)
+    {
+        return NSMakeRange(NSNotFound, 0);
+    }
+
+    NSRegularExpression *expression = [self regularExpression];
+    NSInteger index = _NSRegexCaptureGroupIndexForName([expression pattern], name);
+    if (index < 0 || (NSUInteger)index >= [self numberOfRanges])
+    {
+        return NSMakeRange(NSNotFound, 0);
+    }
+
+    return [self rangeAtIndex:(NSUInteger)index];
+}
 
 @end
 

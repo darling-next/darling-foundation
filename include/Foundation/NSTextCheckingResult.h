@@ -61,6 +61,7 @@ typedef NS_OPTIONS(uint64_t, NSTextCheckingTypes) {
 @property (readonly) NSUInteger numberOfRanges;
 
 - (NSRange)rangeAtIndex:(NSUInteger)idx;
+- (NSRange)rangeWithName:(NSString *)name;
 - (NSTextCheckingResult *)resultByAdjustingRangesWithOffset:(NSInteger)offset;
 
 @end
