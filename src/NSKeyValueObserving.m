@@ -1562,7 +1562,15 @@ static BOOL __NSKeyValueCheckObservationInfoForPendingNotification(NSObject *ori
 
 BOOL _NSKeyValuePopPendingNotificationPerThread(NSObject *observable, NSString *key, NSKeyValueObservance **outObservance, NSKeyValueChangeDetails *outChangeDetails, NSKeyValueForwardingValues *outForwardingValues, id *outKeyOrKeys, NSKVOPopNotificationResult *result)
 {
+    // `pendingNotificationCount` is captured when the notification cycle starts, but
+    // this array shrinks as entries are popped, including recursively.  Passing a stale
+    // index to CFArrayRemoveValueAtIndex is not harmless in this tree: _CFArrayReplaceValues
+    // releases the bucket at that index even when it lies outside the live region, so the
+    // custom release callback receives NULL and _NSKVOPendingNotificationRelease
+    // dereferences it.  Every index used here must be clamped to the array as it is now.
+    NSInteger liveCount = CFArrayGetCount(result->pendingNotifications);
     NSInteger cursor = result->pendingNotificationCount;
+    if (cursor > liveCount) cursor = liveCount;
     if (result->relevantNotification == NULL)
     {
         result->relevantNotificationIndex = cursor;
@@ -1570,7 +1578,12 @@ BOOL _NSKeyValuePopPendingNotificationPerThread(NSObject *observable, NSString *
     else
     {
         BOOL temp = result->relevantNotification->reserved;
-        CFArrayRemoveValueAtIndex(result->pendingNotifications, result->relevantNotificationIndex);
+        NSInteger removalIndex = result->relevantNotificationIndex;
+        liveCount = CFArrayGetCount(result->pendingNotifications);
+        if (removalIndex >= 0 && removalIndex < liveCount)
+        {
+            CFArrayRemoveValueAtIndex(result->pendingNotifications, removalIndex);
+        }
         if (temp)
         {
             #warning TODO: This return breaks having multiple observers of the same object & key. Work out what it's meant to do!
@@ -1580,6 +1593,8 @@ BOOL _NSKeyValuePopPendingNotificationPerThread(NSObject *observable, NSString *
             //return NO;
         }
         cursor = result->relevantNotificationIndex;
+        liveCount = CFArrayGetCount(result->pendingNotifications);
+        if (cursor > liveCount) cursor = liveCount;
     }
     BOOL success = NO;
     while (cursor-- > 0)
