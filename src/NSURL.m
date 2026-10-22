@@ -16,7 +16,6 @@
 #import "ForFoundationOnly.h"
 #import <CoreFoundation/CFNumber.h>
 #import <CoreFoundation/CFURL.h>
-#include "CFInternal.h"
 #import <objc/runtime.h>
 
 // Private classes
@@ -617,7 +616,7 @@ OBJC_PROTOCOL_IMPL_POP
     if (getenv("DARLING_NSURL_TRACE")) {
         static int seen = 0;
         void *rv = _reserved;
-        if (rv && seen < 8) {
+        if (rv && seen < 8 && !_CFIsCFObject(rv)) {
             seen++;
             fprintf(stderr, "[nsurl-cfurl] self=%p class=%s reserved=%p\n", self, class_getName(cls), rv);
         }
