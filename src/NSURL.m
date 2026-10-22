@@ -604,16 +604,6 @@ OBJC_PROTOCOL_IMPL_POP
     }
     else
     {
-        // DIAGNOSTIC (gated): correlate the ivar this accessor hands out with the receiver the runtime
-        // later messages. MEASURED 2026-10-22: the class-D receiver is this value for a foreign subclass.
-        if (getenv("DARLING_NSURL_TRACE")) {
-            static int seen = 0;
-            if (seen < 12) {
-                seen++;
-                fprintf(stderr, "[nsurl-cfurl] pid=%d self=%p class=%s reserved=%p\n",
-                        (int)getpid(), self, class_getName(object_getClass(self)), _reserved);
-            }
-        }
         return _reserved;
     }
 }
