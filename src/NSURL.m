@@ -565,17 +565,6 @@ OBJC_PROTOCOL_IMPL_POP
 
 - (void)dealloc
 {
-    // DIAGNOSTIC (gated): record the death of an NSURL so a later msgSend on a stale receiver can be
-    // matched against it. MEASURED 2026-10-22: the class-D receiver is messaged with `_cfurl` by the
-    // CF-backed -retain/-release wrappers, so the question is whether that pointer was freed.
-    if (getenv("DARLING_NSURL_TRACE")) {
-        static int seen = 0;
-        if (seen < 400) {
-            seen++;
-            fprintf(stderr, "[nsurl-dealloc] pid=%d self=%p class=%s\n",
-                    (int)getpid(), self, class_getName(object_getClass(self)));
-        }
-    }
     [self _freeClients];
     if (object_getClass(self) != [NSURL class])
     {
