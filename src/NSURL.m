@@ -598,7 +598,17 @@ OBJC_PROTOCOL_IMPL_POP
 
 - (CFURLRef)_cfurl
 {
-    if (object_getClass(self) == [NSURL class])
+    // A CFURL carries the class CF registered for it, and Foundation's NSURL is a DIFFERENT class
+    // object with the same name (both trees implement `@implementation NSURL`). Comparing class
+    // identity alone therefore sends every real CFURL to the `_reserved` branch, which reads the
+    // NSObject ivar at an offset a CFRuntime object does not have: MEASURED 2026-10-22 as
+    // `-[NSConcreteMapTable _cfurl]: unrecognized selector`, thrown from DVTFoundation's
+    // `_launchServicesUTIForFileAtURL:` -> `-[NSURL getResourceValue:forKey:error:]` ->
+    // `CFURLCopyResourcePropertyForKey` after `_cfurl` returned that table as if it were a URL,
+    // which xcodebuild then reports as an uncaught exception and aborts on (SIGILL/SIGSEGV, rc
+    // 132/139, intermittently). `_CFIsObjC` is CF's own discriminator and answers this question
+    // without the class-identity assumption.
+    if (object_getClass(self) == [NSURL class] || !_CFIsObjC(CFURLGetTypeID(), (void *)self))
     {
         return (CFURLRef)self;
     }
