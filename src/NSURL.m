@@ -675,7 +675,7 @@ OBJC_PROTOCOL_IMPL_POP
 
 - (NSURL *)URLByAppendingPathComponent:(NSString *)pathComponent isDirectory:(BOOL)isDirectory
 {
-    return [(NSURL *)CFURLCreateCopyAppendingPathComponent(CFGetAllocator(self), (CFURLRef)self, (CFStringRef) pathComponent, isDirectory) autorelease];
+    return [(NSURL *)CFURLCreateCopyAppendingPathComponent(CFGetAllocator([self _cfurl]), [self _cfurl], (CFStringRef) pathComponent, isDirectory) autorelease];
 }
 
 @end
@@ -737,22 +737,22 @@ OBJC_PROTOCOL_IMPL_POP
         return nil;
     }
 
-    return [(NSURL *)CFURLCreateCopyAppendingPathComponent(kCFAllocatorDefault, (CFURLRef)self, (CFStringRef)pathComponent, isDirectory) autorelease];
+    return [(NSURL *)CFURLCreateCopyAppendingPathComponent(kCFAllocatorDefault, [self _cfurl], (CFStringRef)pathComponent, isDirectory) autorelease];
 }
 
 - (NSURL *)URLByDeletingLastPathComponent
 {
-    return [(NSURL *)CFURLCreateCopyDeletingLastPathComponent(kCFAllocatorDefault, (CFURLRef)self) autorelease];
+    return [(NSURL *)CFURLCreateCopyDeletingLastPathComponent(kCFAllocatorDefault, [self _cfurl]) autorelease];
 }
 
 - (NSURL *)URLByAppendingPathExtension:(NSString *)pathExtension
 {
-    return [(NSURL *)CFURLCreateCopyAppendingPathExtension(kCFAllocatorDefault, (CFURLRef)self, (CFStringRef)pathExtension) autorelease];
+    return [(NSURL *)CFURLCreateCopyAppendingPathExtension(kCFAllocatorDefault, [self _cfurl], (CFStringRef)pathExtension) autorelease];
 }
 
 - (NSURL *)URLByDeletingPathExtension
 {
-    return [(NSURL *)CFURLCreateCopyDeletingPathExtension(kCFAllocatorDefault, (CFURLRef)self) autorelease];
+    return [(NSURL *)CFURLCreateCopyDeletingPathExtension(kCFAllocatorDefault, [self _cfurl]) autorelease];
 }
 
 - (NSURL *)URLByStandardizingPath
