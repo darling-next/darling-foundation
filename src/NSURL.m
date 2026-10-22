@@ -6,6 +6,7 @@
 //
 
 #import <Foundation/NSURL.h>
+#include <objc/runtime.h>
 #import <Foundation/NSFileManager.h>
 #import <Foundation/NSException.h>
 #import "NSObjectInternal.h"
@@ -598,14 +599,29 @@ OBJC_PROTOCOL_IMPL_POP
 
 - (CFURLRef)_cfurl
 {
-    if (object_getClass(self) == [NSURL class])
+    // A base NSURL is itself a CFURL: +allocWithZone: returns CFURLCreateWithString(),
+    // so the object has no ObjC isa and object_getClass() answers Nil.  The old test
+    // only recognised a real [NSURL class] isa, so every CFURL-backed URL fell through
+    // to `_reserved`, which in the CFURL layout is the URL's _string (a CFString):
+    // CFRetain() then messaged that string and intermittently crashed.  A subclass
+    // keeps its CFURL in `_reserved`.
+    Class cls = object_getClass(self);
+    if (cls == Nil || cls == [NSURL class])
     {
         return (CFURLRef)self;
     }
-    else
-    {
-        return _reserved;
+    // DIAGNOSTIC (gated): names the NSURL SUBCLASS whose `_reserved` is not a URL. MEASURED 2026-10-22:
+    // the class-D crash is _objc_msgSend+0x1d with the receiver being `_reserved`, so the subclass and its
+    // ivar value are the missing evidence.
+    if (getenv("DARLING_NSURL_TRACE")) {
+        static int seen = 0;
+        void *rv = _reserved;
+        if (rv && seen < 8 && !_CFIsCFObject(rv)) {
+            seen++;
+            fprintf(stderr, "[nsurl-cfurl] self=%p class=%s reserved=%p\n", self, class_getName(cls), rv);
+        }
     }
+    return (CFURLRef)_reserved;
 }
 
 OBJC_PROTOCOL_IMPL_PUSH
