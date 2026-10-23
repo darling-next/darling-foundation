@@ -567,9 +567,23 @@ OBJC_PROTOCOL_IMPL_POP
 /* Diagnostic: NSURL_TRACE=1 prints every Foundation NSURL's identity, its CFURL, and the CF type of that CFURL,
  * so a run that retains a freed URL shows whether the wrapper or the CFURL behind it died first. Inert without
  * the variable. */
+/* DARLING_DIAG=url-life is the shared spelling (docs/tooling.md); NSURL_TRACE stays honoured. */
+static int _darlDiagHas(const char *token) {
+    static const char *all = NULL;
+    static int cached = 0;
+    if (!cached) { all = getenv("DARLING_DIAG"); cached = 1; }
+    if (all == NULL || *all == 0) return 0;
+    size_t n = strlen(token);
+    for (const char *p = all; (p = strstr(p, token)) != NULL; p += n) {
+        int before = (p == all) || (p[-1] == ',');
+        int after = (p[n] == 0) || (p[n] == ',');
+        if (before && after) return 1;
+    }
+    return 0;
+}
 static int _nsurlTraceOn(void) {
     static int on = -1;
-    if (on < 0) { const char *e = getenv("NSURL_TRACE"); on = (e && *e && *e != '0'); }
+    if (on < 0) { const char *e = getenv("NSURL_TRACE"); on = (e && *e && *e != '0') || _darlDiagHas("url-life"); }
     return on;
 }
 static void _nsurlTrace(const char *what, id self, CFTypeRef cf) {
