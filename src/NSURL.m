@@ -563,8 +563,29 @@ OBJC_PROTOCOL_IMPL_POP
     return (NSString *)CFURLGetString([self _cfurl]);
 }
 
+
+/* Diagnostic: NSURL_TRACE=1 prints every Foundation NSURL's identity, its CFURL, and the CF type of that CFURL,
+ * so a run that retains a freed URL shows whether the wrapper or the CFURL behind it died first. Inert without
+ * the variable. */
+static int _nsurlTraceOn(void) {
+    static int on = -1;
+    if (on < 0) { const char *e = getenv("NSURL_TRACE"); on = (e && *e && *e != '0'); }
+    return on;
+}
+static void _nsurlTrace(const char *what, id self, CFTypeRef cf) {
+    if (!_nsurlTraceOn()) return;
+    uint32_t cfinfo = cf ? *(uint32_t *)((char *)cf + 8) : 0;
+    unsigned tid = (cfinfo >> 8) & 0x3FF;
+    long rc = -1;
+    if (cf && tid != 0 && tid < 200) rc = (long)CFGetRetainCount(cf);
+    fprintf(stderr, "[nsurl] %s self=%p cls=%s cfurl=%p cftype=%u rc=%ld\n",
+            what, (void *)self, object_getClassName(self), (void *)cf, tid, rc);
+    fflush(stderr);
+}
+
 - (void)dealloc
 {
+    _nsurlTrace("dealloc", self, [self _cfurl]);
     [self _freeClients];
     if (object_getClass(self) != [NSURL class])
     {
@@ -669,11 +690,26 @@ OBJC_PROTOCOL_IMPL_POP
 
 - (oneway void)release
 {
-    CFRelease([self _cfurl]);
+    CFURLRef url = [self _cfurl];
+    _nsurlTrace("release", self, url);
+    /* This wrapper has its own identity but forwards retain/release to the CFURL it wraps, so the two counts are
+     * one count. When this release is the CFURL's last reference the CFURL dies; the wrapper must die with it in
+     * the same step, otherwise a later -retain messages an object whose CFURL is already gone. MEASURED
+     * 2026-10-23 as the intermittent xcodebuild crash: Xcode's PathEntryBackedURL wrapper outlived its CFURL and
+     * -[NSURL retain] then dispatched -retain to freed memory (evidence section 73). */
+    if (url != NULL && (CFTypeRef)url == (CFTypeRef)_reserved && CFGetRetainCount(url) == 1)
+    {
+        _reserved = NULL;
+        CFRelease(url);
+        [self dealloc];
+        return;
+    }
+    CFRelease(url);
 }
 
 - (id)retain
 {
+    _nsurlTrace("retain", self, [self _cfurl]);
     CFRetain([self _cfurl]);
     return self;
 }
