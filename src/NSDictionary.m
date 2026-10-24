@@ -23,6 +23,9 @@
 #import <CoreFoundation/CFPropertyList.h>
 
 #import <Foundation/NSError.h>
+#import <Foundation/NSURL.h>
+#import <Foundation/NSURLError.h>
+#import <Foundation/FoundationErrors.h>
 #import "_NSFileIO.h"
 
 #import <stdio.h>
@@ -108,6 +111,78 @@
         CFRelease(plist);
     }
     return dict;
+}
+
+// Apple's current Foundation exposes -[NSDictionary writeToURL:error:] (public write(to:));
+// the vendored CoreFoundation bridge only carries the legacy Boolean-only atomically
+// overloads, and neither darling-foundation upstream a8b5ab1 nor the VibeDarling sibling
+// implements this selector. Do not route through the legacy writer: that drops NSError and
+// would fabricate success for invalid property lists. Serialize with the same CF property
+// list writer the readers use, then hand the bytes to the shared error-preserving NSData
+// writer so serialization and I/O failures remain distinguishable. Declared here on the
+// public base class; __NSCFDictionary and other subclasses inherit it by ordinary dispatch.
+- (BOOL)writeToURL:(NSURL *)url error:(NSError **)error
+{
+    CFErrorRef plistError = NULL;
+    CFDataRef data = CFPropertyListCreateData(kCFAllocatorDefault,
+        (CFPropertyListRef)self, kCFPropertyListXMLFormat_v1_0, 0, &plistError);
+    if (data == NULL)
+    {
+        if (error != NULL)
+        {
+            if (plistError != NULL)
+            {
+                *error = [(NSError *)plistError autorelease];
+            }
+            else
+            {
+                // CFPropertyListCreateData reports an invalid plist value on its own stream
+                // but can return NULL without a CFError. The public Foundation write
+                // contract reports this serialization failure as
+                // NSPropertyListWriteStreamError (3851), and the destination stays untouched.
+                *error = [NSError errorWithDomain:NSCocoaErrorDomain
+                                             code:NSPropertyListWriteStreamError
+                                         userInfo:nil];
+            }
+        }
+        else if (plistError != NULL)
+        {
+            CFRelease(plistError);
+        }
+        return NO;
+    }
+    if (plistError != NULL)
+    {
+        CFRelease(plistError);
+    }
+
+    if (url != nil && ![url isFileURL])
+    {
+        if (error != NULL)
+        {
+            *error = [NSError errorWithDomain:NSCocoaErrorDomain
+                                         code:NSFileWriteUnsupportedSchemeError
+                                     userInfo:@{NSURLErrorKey: url}];
+        }
+        CFRelease(data);
+        return NO;
+    }
+
+    NSError *writeError = nil;
+    BOOL success = [(NSData *)data writeToURL:url options:0 error:&writeError];
+    CFRelease(data);
+    if (!success && error != NULL)
+    {
+        if ([[writeError domain] isEqualToString:NSPOSIXErrorDomain])
+        {
+            *error = _NSErrorWithFilePathErrnoAndVariant((int)[writeError code], url, 0, 0);
+        }
+        else
+        {
+            *error = writeError;
+        }
+    }
+    return success;
 }
 
 OBJC_PROTOCOL_IMPL_PUSH
