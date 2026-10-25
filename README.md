@@ -16,6 +16,9 @@
   from its private serial scheduler. Non-main operations execute on that queue;
   clearing it restores global-queue execution. Scheduler bookkeeping does not
   move onto the caller's executor.
+- `NSOperation` releases its copied completion block during teardown, including
+  objects captured by it. This balances completed URL-session callback
+  operations; completion delivery alone does not prove session/task teardown.
 - `-[NSData _createDispatchData]` exposes the existing owned dispatch-data
   snapshot to ARC consumers. Each enumerated region pointer already addresses
   that region; its logical range location is not added a second time. The

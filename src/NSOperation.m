@@ -126,6 +126,7 @@ static pthread_mutex_t _NSOperationLock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER;
     {
         DEBUG_BREAK();
     }
+    Block_release(_completionBlock);
     [_inverse_dependencies release];
     _inverse_dependencies = nil;
     [_dependencies release];
