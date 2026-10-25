@@ -41,6 +41,7 @@ typedef NSUInteger _NSOperationState;
 @interface _NSOperationQueueInternal : NSObject {
 @package
     dispatch_queue_t _schedule_queue;
+    dispatch_queue_t _underlying_queue;
     NSString *_name;
 }
 
@@ -665,6 +666,7 @@ static NSString const *NSOperationQueueKey = @"NSOperationQueue";
 {
     dispatch_release(_schedule_queue);
     _schedule_queue = NULL;
+    if (_underlying_queue) dispatch_release(_underlying_queue);
     [_name release];
     _name = nil;
     [super dealloc];
@@ -1105,7 +1107,8 @@ static NSComparisonResult compareOperationEffectivePriorities(id obj1, id obj2, 
             }
             else
             {
-                dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), start);
+                dispatch_queue_t executor = _internal->_underlying_queue;
+                dispatch_async(executor ?: dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), start);
             }
         }
         [_operationsToStart removeAllObjects];
@@ -1116,15 +1119,21 @@ static NSComparisonResult compareOperationEffectivePriorities(id obj1, id obj2, 
 
 - (dispatch_queue_t)underlyingQueue
 {
-    return _internal->_schedule_queue;
+    pthread_mutex_lock(&_queuelock);
+    dispatch_queue_t queue = _internal->_underlying_queue;
+    if (queue) dispatch_retain(queue);
+    pthread_mutex_unlock(&_queuelock);
+    return (dispatch_queue_t)[(id)queue autorelease];
 }
 
 - (void)setUnderlyingQueue: (dispatch_queue_t)underlyingQueue
 {
-    dispatch_queue_t oldQueue = _internal->_schedule_queue;
-    dispatch_retain(underlyingQueue);
-    _internal->_schedule_queue = underlyingQueue;
-    dispatch_release(oldQueue);
+    if (underlyingQueue) dispatch_retain(underlyingQueue);
+    pthread_mutex_lock(&_queuelock);
+    dispatch_queue_t oldQueue = _internal->_underlying_queue;
+    _internal->_underlying_queue = underlyingQueue;
+    pthread_mutex_unlock(&_queuelock);
+    if (oldQueue) dispatch_release(oldQueue);
 }
 
 @end

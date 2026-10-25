@@ -1250,7 +1250,7 @@ static uint8_t base64EncodeLookup[65] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklm
 
     [self enumerateByteRangesUsingBlock: ^(const void *bytes, NSRange byteRange, BOOL *stop)
     {
-        dispatch_data_t rangeData = dispatch_data_create(bytes + byteRange.location, byteRange.length, NULL, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
+        dispatch_data_t rangeData = dispatch_data_create(bytes, byteRange.length, NULL, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
         dispatch_data_t oldResult = result;
         result = dispatch_data_create_concat(result, rangeData);
         dispatch_release(oldResult);

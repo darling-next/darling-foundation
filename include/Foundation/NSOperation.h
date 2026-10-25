@@ -102,6 +102,8 @@ FOUNDATION_EXPORT NSString * const NSInvocationOperationCancelledException;
 }
 
 @property NSQualityOfService qualityOfService;
+// Dispatch queues are retained even though their non-ARC spelling uses assign.
+@property (nullable, assign) dispatch_queue_t underlyingQueue NS_AVAILABLE(10_10, 8_0);
 
 + (id)currentQueue;
 + (id)mainQueue;

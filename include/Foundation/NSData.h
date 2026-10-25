@@ -1,5 +1,6 @@
 #import <Foundation/NSObject.h>
 #import <Foundation/NSRange.h>
+#import <dispatch/dispatch.h>
 
 @class NSString, NSURL, NSError;
 
@@ -63,6 +64,8 @@ typedef NS_OPTIONS(NSUInteger, NSDataBase64DecodingOptions) {
 - (void)getBytes:(void *)buffer range:(NSRange)range;
 - (BOOL)isEqualToData:(NSData *)other;
 - (NSData *)subdataWithRange:(NSRange)range;
+// The existing implementation returns an owned dispatch-data snapshot.
+- (dispatch_data_t)_createDispatchData DISPATCH_RETURNS_RETAINED;
 - (BOOL)writeToFile:(NSString *)path atomically:(BOOL)atomically;
 - (BOOL)writeToURL:(NSURL *)url atomically:(BOOL)atomically;
 - (BOOL)writeToFile:(NSString *)path options:(NSDataWritingOptions)writeOptionsMask error:(NSError **)errorPtr;
