@@ -32,7 +32,7 @@ NS_ASSUME_NONNULL_BEGIN
 @class NSURLCredential, NSURLCredentialStorage, NSURLProtectionSpace;
 @class NSURLResponse, NSURLSession, NSURLSessionConfiguration;
 @class NSURLSessionTask, NSURLSessionDataTask, NSURLSessionDownloadTask;
-@class NSURLSessionUploadTask;
+@class NSURLSessionUploadTask, NSSet;
 
 @protocol NSURLSessionDelegate <NSObject>
 @optional
@@ -146,6 +146,32 @@ FOUNDATION_EXPORT NSString * const NSURLSessionDownloadTaskResumeData;
 @end
 
 @interface NSURLSessionConfiguration : NSObject <NSCopying>
+{
+@private
+    // Explicit storage is required by the i386 fragile Objective-C ABI.
+    NSString *_identifier;
+    NSURLRequestCachePolicy _requestCachePolicy;
+    NSTimeInterval _timeoutIntervalForRequest;
+    NSTimeInterval _timeoutIntervalForResource;
+    NSURLRequestNetworkServiceType _networkServiceType;
+    BOOL _allowsCellularAccess;
+    BOOL _discretionary;
+    BOOL _sessionSendsLaunchEvents;
+    NSDictionary *_connectionProxyDictionary;
+    SSLProtocol _TLSMinimumSupportedProtocol;
+    SSLProtocol _TLSMaximumSupportedProtocol;
+    BOOL _HTTPShouldUsePipelining;
+    BOOL _HTTPShouldSetCookies;
+    NSHTTPCookieAcceptPolicy _HTTPCookieAcceptPolicy;
+    NSDictionary *_HTTPAdditionalHeaders;
+    NSInteger _HTTPMaximumConnectionsPerHost;
+    NSHTTPCookieStorage *_HTTPCookieStorage;
+    NSURLCredentialStorage *_URLCredentialStorage;
+    NSURLCache *_URLCache;
+    NSArray *_protocolClasses;
+    BOOL __allowsReachabilityCheck;
+    NSSet *__suppressedAutoAddedHTTPHeaders;
+}
 
 + (NSURLSessionConfiguration *)ephemeralSessionConfiguration;
 + (NSURLSessionConfiguration *)backgroundSessionConfiguration:(NSString *)identifier;
@@ -172,6 +198,10 @@ FOUNDATION_EXPORT NSString * const NSURLSessionDownloadTaskResumeData;
 @property (nullable, retain) NSURLCredentialStorage *URLCredentialStorage;
 @property (nullable, retain) NSURLCache *URLCache;
 @property (nullable, copy) NSArray *protocolClasses;
+
+/* Backed by the CFNetwork HTTP header and socket reachability providers. */
+@property BOOL _allowsReachabilityCheck;
+@property (nullable, copy) NSSet *_suppressedAutoAddedHTTPHeaders;
 
 @end
 
