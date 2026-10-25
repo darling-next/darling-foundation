@@ -6,6 +6,10 @@
 typedef NSString * NSURLResourceKey;
 
 FOUNDATION_EXPORT NSString * const NSURLFileScheme;
+FOUNDATION_EXPORT NSString * const NSURLFileProtectionNone;
+FOUNDATION_EXPORT NSString * const NSURLFileProtectionComplete;
+FOUNDATION_EXPORT NSString * const NSURLFileProtectionCompleteUnlessOpen;
+FOUNDATION_EXPORT NSString * const NSURLFileProtectionCompleteUntilFirstUserAuthentication;
 FOUNDATION_EXPORT NSURLResourceKey const NSURLKeysOfUnsetValuesKey;
 FOUNDATION_EXPORT NSURLResourceKey const NSURLNameKey;
 FOUNDATION_EXPORT NSURLResourceKey const NSURLLocalizedNameKey;
