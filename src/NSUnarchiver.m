@@ -256,8 +256,7 @@ static unsigned int roundUp(unsigned int size, unsigned int align);
                 [_data getBytes:buf range:NSMakeRange(_pos, 8)];
                 NSLog(@"Following bytes: 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x\n", buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7]);
 
-                // Should be NSInconsistentArchiveException
-                [NSException raise:NSInvalidArgumentException format:@"Fix [%@ initWithCoder:]", NSStringFromClass(objectClass)];
+                [NSException raise:NSInconsistentArchiveException format:@"Fix [%@ initWithCoder:]", NSStringFromClass(objectClass)];
 
                 __builtin_unreachable();
             }

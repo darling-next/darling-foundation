@@ -1,6 +1,6 @@
 #import <Foundation/NSObject.h>
 
-@class NSString, NSData, NSSet;
+@class NSString, NSData, NSSet, NSError;
 
 @interface NSCoder : NSObject
 
@@ -53,6 +53,10 @@
 - (BOOL)requiresSecureCoding;
 - (id)decodeObjectOfClass:(Class)aClass forKey:(NSString *)key;
 - (id)decodeObjectOfClasses:(NSSet *)classes forKey:(NSString *)key;
+- (id)decodeTopLevelObjectAndReturnError:(NSError **)error;
+- (id)decodeTopLevelObjectForKey:(NSString *)key error:(NSError **)error;
+- (id)decodeTopLevelObjectOfClass:(Class)cls forKey:(NSString *)key error:(NSError **)error;
+- (id)decodeTopLevelObjectOfClasses:(NSSet *)classes forKey:(NSString *)key error:(NSError **)error;
 - (id)decodePropertyListForKey:(NSString *)key;
 - (NSSet *)allowedClasses;
 

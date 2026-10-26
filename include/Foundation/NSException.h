@@ -201,6 +201,7 @@ FOUNDATION_EXPORT const NSExceptionName NSInvalidArgumentException;
 FOUNDATION_EXPORT const NSExceptionName NSInternalInconsistencyException;
 FOUNDATION_EXPORT const NSExceptionName NSMallocException;
 FOUNDATION_EXPORT const NSExceptionName NSObjectInaccessibleException;
+FOUNDATION_EXPORT const NSExceptionName NSInconsistentArchiveException;
 FOUNDATION_EXPORT const NSExceptionName NSObjectNotAvailableException;
 FOUNDATION_EXPORT const NSExceptionName NSDestinationInvalidException;
 FOUNDATION_EXPORT const NSExceptionName NSPortTimeoutException;

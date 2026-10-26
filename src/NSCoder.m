@@ -419,6 +419,50 @@ static inline const char *nextType(const char *type)
     }
 }
 
+/*
+ * The top-level decoding entry points are the Objective-C operations the
+ * Darwin Swift overlay routes through when an error pointer is present.
+ * This base coder has no richer failure channel than its ordinary decode
+ * methods, so a nil result is reported as Cocoa error 4865
+ * (NSCoderValueNotFoundError).  This is the real selector surface, not a
+ * claim that every native decoding-failure policy is reproduced.
+ */
+- (id)decodeTopLevelObjectAndReturnError:(NSError **)error
+{
+    id result = [self decodeObject];
+    if (!result && error) {
+        *error = [NSError errorWithDomain:NSCocoaErrorDomain code:4865 userInfo:nil];
+    }
+    return result;
+}
+
+- (id)decodeTopLevelObjectForKey:(NSString *)key error:(NSError **)error
+{
+    id result = [self decodeObjectForKey:key];
+    if (!result && error) {
+        *error = [NSError errorWithDomain:NSCocoaErrorDomain code:4865 userInfo:nil];
+    }
+    return result;
+}
+
+- (id)decodeTopLevelObjectOfClass:(Class)cls forKey:(NSString *)key error:(NSError **)error
+{
+    id result = [self decodeObjectOfClass:cls forKey:key];
+    if (!result && error) {
+        *error = [NSError errorWithDomain:NSCocoaErrorDomain code:4865 userInfo:nil];
+    }
+    return result;
+}
+
+- (id)decodeTopLevelObjectOfClasses:(NSSet *)classes forKey:(NSString *)key error:(NSError **)error
+{
+    id result = [self decodeObjectOfClasses:classes forKey:key];
+    if (!result && error) {
+        *error = [NSError errorWithDomain:NSCocoaErrorDomain code:4865 userInfo:nil];
+    }
+    return result;
+}
+
 - (id)decodePropertyListForKey:(NSString *)key
 {
     if (![self allowsKeyedCoding])
