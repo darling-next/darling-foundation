@@ -16,4 +16,6 @@ target_link_libraries(filecoordinationd
 )
 
 install(TARGETS filecoordinationd DESTINATION libexec/darling/usr/sbin)
-install(FILES com.apple.FileCoordination.plist DESTINATION libexec/darling/System/Library/LaunchDaemons)
+install(FILES com.apple.FileCoordination.plist
+	DESTINATION libexec/darling/System/Library/LaunchDaemons
+	PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ)
