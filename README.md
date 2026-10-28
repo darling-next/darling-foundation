@@ -24,3 +24,10 @@
   that region; its logical range location is not added a second time. The
   snapshot copies bytes, so it does not borrow the input object's lifetime.
   These primitives do not implement NSURLSession private transport policies.
+- Directory creation reports Cocoa file-write errors with the failed path and
+  the underlying POSIX error, using the existing vendored errno mapping.
+  An existing directory fails without intermediate creation and succeeds with it.
+- `NSFileHandle` pipe reads preserve data beyond the first buffer and stop at the
+  requested length or EOF. A zero-length read does not consume stream data.
+  `test/file-io-guest.m` covers directory-error recovery and bounded/EOF pipe reads
+  through the public guest APIs.

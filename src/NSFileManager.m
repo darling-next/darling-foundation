@@ -32,6 +32,7 @@
 #import "NSFileManagerInternal.h"
 #import "NSPathStore.h"
 #import "NSFilesystemItemRemoveOperation.h"
+#import "_NSFileIO.h"
 
 CF_EXPORT CFStringEncoding CFStringFileSystemEncoding(void);
 
@@ -615,9 +616,7 @@ static inline BOOL _NSFileAccessibleForMode(NSString *path, int mode)
         {
             if (error)
             {
-                *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:@{
-                    NSLocalizedDescriptionKey: [NSString stringWithUTF8String:strerror(errno)]
-                }];
+                *error = _NSErrorWithFilePathErrnoAndVariant(errno, [url path], 0, 0);
             }
             return NO;
         }

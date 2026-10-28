@@ -599,6 +599,10 @@ if ((_flags & NSConcreteFileHandleClosed) != 0) \
 - (NSData *)readDataOfLength:(NSUInteger)length
 {
     FAIL_IF_CLOSED(nil);
+    if (length == 0)
+    {
+        return [NSData data];
+    }
 
     struct stat sbuf;
     int ret = fstat(_fd, &sbuf);
@@ -659,7 +663,7 @@ if ((_flags & NSConcreteFileHandleClosed) != 0) \
         }
         ssize_t readSize;
         do {
-            size_t maxReadSize = MIN(READ_SIZE, bufSize) - totalReadSize;
+            size_t maxReadSize = MIN(READ_SIZE, MIN(bufSize - totalReadSize, length - totalReadSize));
             readSize = _NSReadFromFileDescriptor(_fd, buf + totalReadSize, maxReadSize);
             if (readSize < 0)
             {
@@ -668,10 +672,10 @@ if ((_flags & NSConcreteFileHandleClosed) != 0) \
                 return nil;
             }
             totalReadSize += readSize;
-            if (totalReadSize + READ_SIZE > bufSize)
+            if (readSize > 0 && totalReadSize < length && totalReadSize == bufSize)
             {
                 char *oldBuf = buf;
-                bufSize *= 2;
+                bufSize += MIN(bufSize, length - bufSize);
                 buf = realloc(buf, bufSize);
                 if (buf == NULL)
                 {
@@ -680,7 +684,7 @@ if ((_flags & NSConcreteFileHandleClosed) != 0) \
                     return nil;
                 }
             }
-        } while (readSize > 0);
+        } while (readSize > 0 && totalReadSize < length);
         return [NSData dataWithBytesNoCopy:buf length:totalReadSize];
     }
 }
