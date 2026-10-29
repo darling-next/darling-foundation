@@ -43,6 +43,8 @@ typedef NSUInteger _NSOperationState;
     dispatch_queue_t _schedule_queue;
     dispatch_queue_t _underlying_queue;
     NSString *_name;
+    NSUInteger _enqueueGeneration;
+    NSUInteger _executionGeneration;
 }
 
 @end
@@ -67,6 +69,8 @@ typedef NSUInteger _NSOperationState;
     int _waiting_deps;
     NSInteger _effectivePriorityValue;
     NSQualityOfService _qualityOfService;
+    NSUInteger _queueGeneration;
+    BOOL _isBarrier;
 }
 
 @property (readonly) NSArray *dependencies;
@@ -82,6 +86,7 @@ static volatile int32_t _NSOperationQueueID = 0;
 
 - (void)_removeFinishedOperation:(_NSOperationInternal *)opi;
 - (void)_queueSchedulerRun;
+- (NSArray *)_operationsIncludingBarriers:(BOOL)includeBarriers;
 
 @end
 
@@ -279,15 +284,18 @@ static pthread_mutex_t _NSOperationLock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER;
             return;
         }
 
-        if (_state != NSOperationStateExecuting)
+        if (![_operation isCancelled])
         {
-            [_operation willChangeValueForKey:@"isExecuting"];
-            _state = NSOperationStateExecuting;
-            [_operation didChangeValueForKey:@"isExecuting"];
-        }
+            if (_state != NSOperationStateExecuting)
+            {
+                [_operation willChangeValueForKey:@"isExecuting"];
+                _state = NSOperationStateExecuting;
+                [_operation didChangeValueForKey:@"isExecuting"];
+            }
 
-        //TODO.. set thread priority
-        [_operation main];
+            //TODO.. set thread priority
+            [_operation main];
+        }
 
         [_operation willChangeValueForKey:@"isFinished"];
         if (_state == NSOperationStateExecuting)
@@ -828,6 +836,11 @@ static NSString const *NSOperationQueueKey = @"NSOperationQueue";
     pthread_mutex_lock(&_queuelock);
     [self willChangeValueForKey:@"operationCount"];
     [self willChangeValueForKey:@"operations"];
+    op._internal->_queueGeneration = _internal->_enqueueGeneration;
+    if (op._internal->_isBarrier)
+    {
+        _internal->_enqueueGeneration++;
+    }
     [_pendingOperations addObject:op];
     [self didChangeValueForKey:@"operations"];
     [self didChangeValueForKey:@"operationCount"];
@@ -866,11 +879,46 @@ static NSString const *NSOperationQueueKey = @"NSOperationQueue";
     [self addOperation:[NSBlockOperation blockOperationWithBlock:block]];
 }
 
+// The vendored swift-corelibs-foundation Operation.swift uses hidden operations
+// as completion fences. Upstream darling-foundation and VibeDarling's Objective-C
+// queue have no addBarrierBlock implementation; the Swift scheduler is separate.
+// Use generations here because this queue's ordinary dependencies treat cancelled
+// predecessors as satisfied, whereas a barrier must wait for asynchronous work
+// to actually finish. The existing isFinished KVO removal opens the next fence.
+- (void)addBarrierBlock:(void (^)(void))block
+{
+    if (block == nil)
+    {
+        [NSException raise:NSInvalidArgumentException format:@"Cannot add nil barrier block to operation queue"];
+        return;
+    }
+
+    NSBlockOperation *barrier = [NSBlockOperation blockOperationWithBlock:block];
+    barrier._internal->_isBarrier = YES;
+    [self addOperation:barrier];
+}
+
 - (NSArray *)operations
+{
+    return [self _operationsIncludingBarriers:NO];
+}
+
+- (NSArray *)_operationsIncludingBarriers:(BOOL)includeBarriers
 {
     pthread_mutex_lock(&_queuelock);
     NSMutableArray *operations = [NSMutableArray arrayWithArray:_operations];
     [operations addObjectsFromArray:_pendingOperations];
+    if (!includeBarriers && _internal->_enqueueGeneration != _internal->_executionGeneration)
+    {
+        for (NSUInteger index = [operations count]; index > 0; index--)
+        {
+            NSOperation *op = [operations objectAtIndex:index - 1];
+            if (op._internal->_isBarrier)
+            {
+                [operations removeObjectAtIndex:index - 1];
+            }
+        }
+    }
     pthread_mutex_unlock(&_queuelock);
     return operations;
 }
@@ -879,13 +927,15 @@ static NSString const *NSOperationQueueKey = @"NSOperationQueue";
 {
     pthread_mutex_lock(&_queuelock);
     NSUInteger count = [_operations count] + [_pendingOperations count];
+    // Each outstanding generation boundary is one private barrier operation.
+    count -= _internal->_enqueueGeneration - _internal->_executionGeneration;
     pthread_mutex_unlock(&_queuelock);
     return count;
 }
 
 - (void)cancelAllOperations
 {
-    [self.operations makeObjectsPerformSelector:@selector(cancel) withObject:nil];
+    [[self _operationsIncludingBarriers:YES] makeObjectsPerformSelector:@selector(cancel) withObject:nil];
 }
 
 /*
@@ -896,7 +946,7 @@ static NSString const *NSOperationQueueKey = @"NSOperationQueue";
 - (void)waitUntilAllOperationsAreFinished
 {
     [self retain];
-    for (NSOperation *operation in [self operations])
+    for (NSOperation *operation in [self _operationsIncludingBarriers:YES])
     {
         [operation waitUntilFinished];
     }
@@ -973,6 +1023,10 @@ static NSString const *NSOperationQueueKey = @"NSOperationQueue";
     [self willChangeValueForKey:@"operationCount"];
     [self willChangeValueForKey:@"operations"];
     [_operations removeObjectIdenticalTo:opi->_operation];
+    if (opi->_isBarrier && opi->_queueGeneration == _internal->_executionGeneration)
+    {
+        _internal->_executionGeneration++;
+    }
     [self didChangeValueForKey:@"operations"];
     [self didChangeValueForKey:@"operationCount"];
     pthread_mutex_unlock(&_queuelock);
@@ -1056,19 +1110,51 @@ static NSComparisonResult compareOperationEffectivePriorities(id obj1, id obj2, 
 
     if (operationsToAdd > 0)
     {
-        [self _sortPendingOperations];
-        for (NSOperation *op in _pendingOperations)
+        NSOperation *barrier = nil;
+        BOOL hasEarlierOperations = [_operations count] != 0;
+        if (_internal->_executionGeneration != _internal->_enqueueGeneration)
         {
-            if (operationsToAdd > 0 && op._internal->_state == NSOperationStateReady)
+            for (NSOperation *op in _pendingOperations)
             {
-                operationsToAdd--;
-                [_operationsToStart addObject:op];
-            }
-            else if (operationsToAdd <= 0)
-            {
-                if (op._internal->_state == NSOperationStateReady)
+                if (op._internal->_queueGeneration == _internal->_executionGeneration)
                 {
-                    op._internal->_effectivePriorityValue++;
+                    if (op._internal->_isBarrier)
+                    {
+                        barrier = op;
+                    }
+                    else
+                    {
+                        hasEarlierOperations = YES;
+                    }
+                }
+            }
+        }
+
+        if (barrier != nil && !hasEarlierOperations)
+        {
+            [_operationsToStart addObject:barrier];
+        }
+        else
+        {
+            [self _sortPendingOperations];
+            for (NSOperation *op in _pendingOperations)
+            {
+                if (op._internal->_queueGeneration != _internal->_executionGeneration ||
+                    op._internal->_isBarrier)
+                {
+                    continue;
+                }
+                if (operationsToAdd > 0 && op._internal->_state == NSOperationStateReady)
+                {
+                    operationsToAdd--;
+                    [_operationsToStart addObject:op];
+                }
+                else if (operationsToAdd <= 0)
+                {
+                    if (op._internal->_state == NSOperationStateReady)
+                    {
+                        op._internal->_effectivePriorityValue++;
+                    }
                 }
             }
         }

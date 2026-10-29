@@ -111,6 +111,7 @@ FOUNDATION_EXPORT NSString * const NSInvocationOperationCancelledException;
 - (void)addOperations:(NSArray *)ops waitUntilFinished:(BOOL)wait;
 #if NS_BLOCKS_AVAILABLE
 - (void)addOperationWithBlock:(void (^)(void))block;
+- (void)addBarrierBlock:(void (^)(void))block NS_AVAILABLE(10_15, 13_0);
 #endif
 - (NSArray *)operations;
 - (NSUInteger)operationCount;
