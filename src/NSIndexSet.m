@@ -11,7 +11,6 @@
 #import <Foundation/NSException.h>
 #import <Foundation/NSCoder.h>
 #import <Foundation/NSMutableData.h>
-#import <CoreFoundation/CFArray.h>
 #import <dispatch/dispatch.h>
 #import "utlist.h"
 
@@ -20,12 +19,6 @@ typedef struct RangeList {
     struct RangeList *next;
     struct RangeList *prev;
 } RangeList;
-
-typedef struct NSIndexSetCache {
-    CFArrayRef ranges;
-    NSUInteger count;
-    NSUInteger rangeCount;
-} NSIndexSetCache;
 
 static BOOL NSContainsRange(NSRange haystack, NSRange needle)
 {
@@ -42,12 +35,6 @@ static BOOL NSContainsRange(NSRange haystack, NSRange needle)
 #define HAS_SINGLE_RANGE(set) (FLAGS(set)._hasSingleRange)
 #define SET_HAS_SINGLE_RANGE(set, val) (FLAGS(set)._hasSingleRange = val)
 
-#define CACHE_VALID(set) (FLAGS(set)._cacheValid)
-#define SET_CACHE_VALID(set, val) (FLAGS(set)._cacheValid = val)
-
-#define CACHE(set) (MULTIPLE_RANGES(set)._cache)
-#define SET_CACHE(set, value) MULTIPLE_RANGES(set)._cache = value
-
 #define MULTIPLE_RANGE_DATA(set) MULTIPLE_RANGES(set)._data
 #define SET_MULTIPLE_RANGE_DATA(set, val) MULTIPLE_RANGES(set)._data = val
 
@@ -55,107 +42,15 @@ static BOOL NSContainsRange(NSRange haystack, NSRange needle)
 
 #define SET_SINGLE_RANGE(set, range) SINGLE_RANGE(set) = range
 
-#define RESET_CACHE(set) \
-SET_CACHE_VALID(set, NO); \
-SET_CACHE(set, NULL)
-
-#define CLEAR_CACHE(set) if (!HAS_SINGLE_RANGE(set) && CACHE_VALID(set)) { \
-    NSIndexSetPurgeCache((NSIndexSetCache *)CACHE(set)); \
-    RESET_CACHE(set); \
-}
-
 #define CLEAR_RANGES(set) if (!IS_EMPTY(set)) { \
     if (HAS_SINGLE_RANGE(set)) { \
         SET_HAS_SINGLE_RANGE(set, NO); \
-    } else { \
-        CLEAR_CACHE(set); \
     } \
     SET_EMPTY(set, YES); \
 }
 
-#define BUILD_CACHE(set) ({ \
-    if (!HAS_SINGLE_RANGE(set) && !CACHE_VALID(set)) { \
-        NSIndexSetBuildCache(&CACHE(set), MULTIPLE_RANGE_DATA(set)); \
-    } \
-    BOOL __valid = !HAS_SINGLE_RANGE(set) && CACHE_VALID(set); \
-    __valid; \
-})
-
-
 @implementation NSIndexSet
 
-static inline void NSIndexSetPurgeCache(NSIndexSetCache *cache)
-{
-    if (cache == NULL)
-    {
-        return;
-    }
-    
-    CFRelease(cache->ranges);
-    
-    free(cache);
-}
-
-static inline void NSIndexSetBuildCache(NSIndexSetCache **cache, RangeList *ranges)
-{
-    *cache = malloc(sizeof(NSIndexSetCache));
-    if (*cache == NULL)
-    {
-        return;
-    }
-    
-#define STACK_SIZE 32
-    
-    RangeList *stack_values[STACK_SIZE] = {0};
-    RangeList **values = &stack_values[0];
-    RangeList *entry = NULL;
-    NSUInteger rangeCount = 0;
-    NSUInteger count = 0;
-    NSUInteger capacity = 0;
-    
-    DL_FOREACH(ranges, entry)
-    {
-        if (rangeCount > STACK_SIZE && values == &stack_values[0])
-        {
-            values = malloc(capacity * sizeof(RangeList *));
-            if (values == NULL)
-            {
-                free(*cache);
-                *cache = NULL;
-                return;
-            }
-        }
-        else if (rangeCount > STACK_SIZE && rangeCount + 1 > capacity)
-        {
-            capacity *= 2;
-            values = reallocf(values, capacity * sizeof(RangeList *));
-            if (values == NULL) // prev values cleaned up by reallocf
-            {
-                free(*cache);
-                *cache = NULL;
-                return;
-            }
-        }
-        
-        values[rangeCount] = entry;
-        count += entry->range.length;
-        
-        rangeCount++;
-    }
-    
-    static const CFArrayCallBacks callbacks = {
-        .retain = NULL,
-        .release = NULL,
-    };
-    
-    (*cache)->ranges = CFArrayCreate(kCFAllocatorDefault, (const void **)values, rangeCount, &callbacks);
-    (*cache)->rangeCount = rangeCount;
-    
-    if (values != &stack_values[0] && values != NULL)
-    {
-        free(values);
-    }
-}
 
 static inline void addIndexesInRange(NSIndexSet *self, NSRange range)
 {
@@ -199,9 +94,6 @@ static inline void addIndexesInRange(NSIndexSet *self, NSRange range)
         SET_HAS_SINGLE_RANGE(self, NO);
         MULTIPLE_RANGE_DATA(self) = NULL;
         
-        // set the cache to NULL so that it does not have junk data from the union
-        RESET_CACHE(self);
-        
         if (oldRange->range.location < newRange->range.location)
         {
             DL_APPEND(MULTIPLE_RANGE_DATA(self), oldRange);
@@ -215,9 +107,6 @@ static inline void addIndexesInRange(NSIndexSet *self, NSRange range)
     }
     else
     {
-        // clear the cache
-        CLEAR_CACHE(self);
-        
         RangeList *newRange = malloc(sizeof(RangeList));
         newRange->range = range;
         
@@ -232,73 +121,12 @@ static inline void addIndexesInRange(NSIndexSet *self, NSRange range)
         }
         else
         {
-            DL_INSERT(MULTIPLE_RANGE_DATA(self), ptr, newRange);
+            RangeList *next = ptr->next;
+            DL_INSERT(MULTIPLE_RANGE_DATA(self), next, newRange);
         }
         
         [self _mergeOverlappingRangesStartingAtIndex:(ptr ?: MULTIPLE_RANGE_DATA(self))];
     }
-}
-
-static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList *r2, RangeList *search)
-{
-    RangeList *needle = NULL;
-    RangeList *haystack = NULL;
-    
-    if (r1 == search)
-    {
-        needle = r1;
-        haystack = r2;
-    }
-    else if (r2 == search)
-    {
-        needle = r2;
-        haystack = r1;
-    }
-    else
-    {
-        if (r1->range.location < r2->range.location)
-        {
-            return kCFCompareLessThan;
-        }
-        else if (r1->range.location > r2->range.location)
-        {
-            return kCFCompareGreaterThan;
-        }
-        else
-        {
-            return kCFCompareEqualTo;
-        }
-    }
-    
-    if (haystack->range.location <= needle->range.location + needle->range.length && needle->range.location + needle->range.length <= haystack->range.location + haystack->range.length)
-    {
-        return kCFCompareEqualTo;
-    }
-    else if (needle->range.location < haystack->range.location)
-    {
-        if (needle == r1)
-        {
-            return kCFCompareLessThan;
-        }
-        else
-        {
-            return kCFCompareGreaterThan;
-        }
-    }
-    else if (needle->range.location > haystack->range.location)
-    {
-        if (needle == r1)
-        {
-            return kCFCompareGreaterThan;
-        }
-        else
-        {
-            return kCFCompareLessThan;
-        }
-    }
-    
-    NSCAssert(0, @"Incorrect searching logic");
-    return kCFCompareEqualTo; // error in logic if we get to here?
 }
 
 - (BOOL)_isEmpty
@@ -489,7 +317,7 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
     {
         return SINGLE_RANGE(self).length;
     }
-    else if (!BUILD_CACHE(self))
+    else
     {
         RangeList *ptr = NULL;
         NSUInteger count = 0;
@@ -498,10 +326,6 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
             count += ptr->range.length;
         }
         return count;
-    }
-    else
-    {
-        return CACHE(self)->count;
     }
 }
 
@@ -516,16 +340,12 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
     {
         return 1;
     }
-    else if (!BUILD_CACHE(self))
+    else
     {
         NSUInteger sum = 0;
         RangeList *ptr = NULL;
         DL_COUNT(MULTIPLE_RANGE_DATA(self), ptr, sum);
         return sum;
-    }
-    else
-    {
-        return CACHE(self)->rangeCount;
     }
 }
 
@@ -584,7 +404,7 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
             return value + 1;
         }
     }
-    else if (!BUILD_CACHE(self))
+    else
     {
         RangeList *ptr = NULL;
         DL_FOREACH(MULTIPLE_RANGE_DATA(self), ptr)
@@ -603,23 +423,6 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
                 }
             }
         }
-        return NSNotFound;
-    }
-    else
-    {
-        RangeList search = {
-            .range = {
-                .location = value,
-                .length = 0,
-            },
-        };
-        
-        CFIndex found = CFArrayBSearchValues(CACHE(self)->ranges, CFRangeMake(0, CACHE(self)->rangeCount), &search, (CFComparatorFunction)&NSIndexSetCompareEntry, &search);
-        if (found != kCFNotFound)
-        {
-            return value + 1;
-        }
-        
         return NSNotFound;
     }
 }
@@ -648,7 +451,7 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
             return value;
         }
     }
-    else if (!BUILD_CACHE(self))
+    else
     {
         RangeList *ptr = NULL;
         DL_FOREACH(MULTIPLE_RANGE_DATA(self), ptr)
@@ -667,23 +470,6 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
                 }
             }
         }
-        return NSNotFound;
-    }
-    else
-    {
-        RangeList search = {
-            .range = {
-                .location = value,
-                .length = 0,
-            },
-        };
-        
-        CFIndex found = CFArrayBSearchValues(CACHE(self)->ranges, CFRangeMake(0, CACHE(self)->rangeCount), &search, (CFComparatorFunction)&NSIndexSetCompareEntry, &search);
-        if (found != kCFNotFound)
-        {
-            return value;
-        }
-        
         return NSNotFound;
     }
 }
@@ -712,7 +498,7 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
             return end;
         }
     }
-    else if (!BUILD_CACHE(self))
+    else
     {
         RangeList *ptr = MULTIPLE_RANGE_DATA(self);
         if (value <= ptr->range.location)
@@ -732,23 +518,6 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
                 return end;
             }
         }
-    }
-    else
-    {
-        RangeList search = {
-            .range = {
-                .location = value,
-                .length = 1,
-            },
-        };
-        
-        CFIndex found = CFArrayBSearchValues(CACHE(self)->ranges, CFRangeMake(0, CACHE(self)->rangeCount), &search, (CFComparatorFunction)&NSIndexSetCompareEntry, &search);
-        if (found != kCFNotFound)
-        {
-            return value - 1;
-        }
-        
-        return NSNotFound;
     }
     
 }
@@ -777,7 +546,7 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
             return end;
         }
     }
-    else if (!BUILD_CACHE(self))
+    else
     {
         RangeList *ptr = MULTIPLE_RANGE_DATA(self);
         if (value < ptr->range.location)
@@ -797,23 +566,6 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
                 return end;
             }
         }
-    }
-    else
-    {
-        RangeList search = {
-            .range = {
-                .location = value,
-                .length = 1,
-            },
-        };
-        
-        CFIndex found = CFArrayBSearchValues(CACHE(self)->ranges, CFRangeMake(0, CACHE(self)->rangeCount), &search, (CFComparatorFunction)&NSIndexSetCompareEntry, &search);
-        if (found != kCFNotFound)
-        {
-            return value;
-        }
-        
-        return NSNotFound;
     }
 }
 
@@ -1110,8 +862,6 @@ static inline CFComparisonResult NSIndexSetCompareEntry(RangeList *r1, RangeList
 
 - (void)dealloc
 {
-    CLEAR_CACHE(self);
-    
     if (!IS_EMPTY(self) && !HAS_SINGLE_RANGE(self))
     {
         RangeList *ptr = NULL;
@@ -1895,7 +1645,6 @@ static NSIndexSet *__NSEnumerateIndexesMultipleIndexRangesWithNonZeroOptions(NSI
     }
     if (MULTIPLE_RANGE_DATA(self)->next == NULL)
     {
-        CLEAR_CACHE(self);
         SET_HAS_SINGLE_RANGE(self, YES);
         SET_EMPTY(self, NO);
         SET_SINGLE_RANGE(self, ptr->range);
@@ -2041,9 +1790,6 @@ static NSIndexSet *__NSEnumerateIndexesMultipleIndexRangesWithNonZeroOptions(NSI
         {
             SET_HAS_SINGLE_RANGE(self, NO);
             SET_EMPTY(self, NO);
-            // set the cache to NULL so that it does not have junk data from the union
-            RESET_CACHE(self);
-            
             RangeList *first = (RangeList *)malloc(sizeof(RangeList));
             first->range.location = rangeStart;
             first->range.length = start - rangeStart;
@@ -2060,8 +1806,6 @@ static NSIndexSet *__NSEnumerateIndexesMultipleIndexRangesWithNonZeroOptions(NSI
     }
     else
     {
-        CLEAR_CACHE(self);
-        
         RangeList *tmp;
         RangeList *ptr = [self _pointerToRangeBeforeOrContainingIndex:start];
         if (ptr == NULL)
@@ -2187,7 +1931,6 @@ static inline void _shiftRange(NSRange *range, NSInteger delta)
 
         NSRange currentRange = SINGLE_RANGE(self);
 
-        CLEAR_CACHE(self);
         SET_HAS_SINGLE_RANGE(self, NO);
         MULTIPLE_RANGE_DATA(self) = NULL;
 
@@ -2210,8 +1953,6 @@ static inline void _shiftRange(NSRange *range, NSInteger delta)
     }
     else
     {
-        CLEAR_CACHE(self);
-
         RangeList *ptr = [self _pointerToRangeBeforeOrContainingIndex:index];
         if (ptr == NULL)
         {
