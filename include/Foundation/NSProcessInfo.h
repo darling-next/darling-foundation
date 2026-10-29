@@ -57,6 +57,29 @@ NSOperatingSystemVersion;
 - (void)disableSuddenTermination;
 @end
 
+@interface NSProcessInfo (NSAutomaticTermination)
+- (void)disableAutomaticTermination:(NSString *)reason;
+- (void)enableAutomaticTermination:(NSString *)reason;
+@property BOOL automaticTerminationSupportEnabled;
+@end
+
+typedef NS_OPTIONS(uint64_t, NSActivityOptions) {
+    NSActivityIdleDisplaySleepDisabled = (1ULL << 40),
+    NSActivityIdleSystemSleepDisabled = (1ULL << 20),
+    NSActivitySuddenTerminationDisabled = (1ULL << 14),
+    NSActivityAutomaticTerminationDisabled = (1ULL << 15),
+    NSActivityUserInitiated = 0x00FFFFFFULL,
+    NSActivityUserInitiatedAllowingIdleSystemSleep = (NSActivityUserInitiated & ~NSActivityIdleSystemSleepDisabled),
+    NSActivityBackground = 0x000000FFULL,
+    NSActivityLatencyCritical = 0xFF00000000ULL,
+};
+
+@interface NSProcessInfo (NSProcessInfoActivity)
+- (id<NSObject>)beginActivityWithOptions:(NSActivityOptions)options reason:(NSString *)reason;
+- (void)endActivity:(id<NSObject>)activity;
+- (void)performActivityWithOptions:(NSActivityOptions)options reason:(NSString *)reason usingBlock:(void (^)(void))block;
+@end
+
 @interface NSProcessInfo (NSProcessInfoPlatform)
 -(BOOL)isMacCatalystApp;
 -(BOOL)isiOSAppOnMac;

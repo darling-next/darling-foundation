@@ -12,6 +12,11 @@
 #import <Foundation/NSDictionary.h>
 #import <Foundation/NSPathUtilities.h>
 #import <Foundation/NSUUID.h>
+#import <Foundation/NSException.h>
+#import <CoreFoundation/ForFoundationOnly.h>
+#import <CoreFoundation/CFBundle.h>
+#import <IOKit/pwr_mgt/IOPMLib.h>
+#import <vproc_priv.h>
 #import <CoreFoundation/CFPriv.h>
 #import "NSConnectionInternal.h"
 #import "NSObjectInternal.h"
@@ -34,6 +39,91 @@ extern char ***_NSGetEnviron();
  guaranteed to be stable across all threads; ala setenv etc.
  */
 
+// Vendored/newer Darling and the sibling fork omit activities; GNUstep's
+// implementation is a no-op. Use the existing vproc termination transactions
+// and genuine IOKit assertions instead. Missing powerd must fail, not manufacture
+// a successful sleep assertion. Darling has no App Nap/timer-coalescing policy
+// to disable for the scheduling hints.
+@interface _NSProcessActivity : NSObject
+{
+    NSActivityOptions _options;
+    NSString *_reason;
+    IOPMAssertionID _systemSleep;
+    IOPMAssertionID _displaySleep;
+    BOOL _ended;
+    IOReturn _completionResult;
+}
+- (id)initWithOptions:(NSActivityOptions)options reason:(NSString *)reason;
+- (IOReturn)finish;
+@end
+
+@implementation _NSProcessActivity
+- (id)initWithOptions:(NSActivityOptions)options reason:(NSString *)reason
+{
+    self = [super init];
+    if (!self) return nil;
+    @try {
+        _reason = [reason copy];
+        IOReturn error = kIOReturnSuccess;
+        if (options & NSActivityIdleSystemSleepDisabled)
+            error = IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep,
+                                               kIOPMAssertionLevelOn, (CFStringRef)_reason, &_systemSleep);
+        if (error == kIOReturnSuccess && (options & NSActivityIdleDisplaySleepDisabled))
+            error = IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep,
+                                               kIOPMAssertionLevelOn, (CFStringRef)_reason, &_displaySleep);
+        if (error != kIOReturnSuccess)
+            [NSException raise:NSInternalInconsistencyException
+                        format:@"Cannot create process activity power assertion: 0x%x", error];
+        NSProcessInfo *process = [NSProcessInfo processInfo];
+        if (options & NSActivitySuddenTerminationDisabled) {
+            [process disableSuddenTermination];
+            _options |= NSActivitySuddenTerminationDisabled;
+        }
+        if (options & NSActivityAutomaticTerminationDisabled) {
+            [process disableAutomaticTermination:_reason];
+            _options |= NSActivityAutomaticTerminationDisabled;
+        }
+    } @catch (id exception) {
+        [self release];
+        @throw;
+    }
+    return self;
+}
+
+- (IOReturn)finish
+{
+    @synchronized (self) {
+        if (_ended) return _completionResult;
+        _ended = YES;
+        IOReturn result = kIOReturnSuccess;
+        if (_displaySleep) {
+            IOReturn error = IOPMAssertionRelease(_displaySleep);
+            if (error != kIOReturnSuccess) result = error;
+        }
+        if (_systemSleep) {
+            IOReturn error = IOPMAssertionRelease(_systemSleep);
+            if (error != kIOReturnSuccess) result = error;
+        }
+        NSProcessInfo *process = [NSProcessInfo processInfo];
+        if (_options & NSActivityAutomaticTerminationDisabled)
+            [process enableAutomaticTermination:_reason];
+        if (_options & NSActivitySuddenTerminationDisabled)
+            [process enableSuddenTermination];
+        _completionResult = result;
+        return _completionResult;
+    }
+}
+
+- (void)dealloc
+{
+    IOReturn error = [self finish];
+    if (error != kIOReturnSuccess)
+        NSLog(@"Cannot release process activity power assertion: 0x%x", error);
+    [_reason release];
+    [super dealloc];
+}
+@end
+
 @implementation NSProcessInfo
 
 + (NSProcessInfo *)processInfo
@@ -42,6 +132,11 @@ extern char ***_NSGetEnviron();
     static dispatch_once_t once = 0L;
     dispatch_once(&once, ^{
         processInfo = [[NSProcessInfo alloc] init];
+        CFBundleRef bundle = CFBundleGetMainBundle();
+        CFTypeRef supported = bundle ? CFBundleGetValueForInfoDictionaryKey(
+            bundle, CFSTR("NSSupportsAutomaticTermination")) : NULL;
+        if (supported && CFGetTypeID(supported) == CFBooleanGetTypeID() && CFBooleanGetValue(supported))
+            [processInfo setAutomaticTerminationSupportEnabled:YES];
     });
     return processInfo;
 }
@@ -352,6 +447,101 @@ SINGLETON_RR()
 	}
 }
 
+@end
+
+@implementation NSProcessInfo (NSSuddenTermination)
+- (void)disableSuddenTermination
+{
+    _CFSuddenTerminationDisable();
+}
+
+- (void)enableSuddenTermination
+{
+    _CFSuddenTerminationEnable();
+}
+@end
+
+@implementation NSProcessInfo (NSAutomaticTermination)
+static BOOL automaticTerminationSupported;
+
+- (BOOL)automaticTerminationSupportEnabled
+{
+    @synchronized (self) {
+        return automaticTerminationSupported;
+    }
+}
+
+- (void)setAutomaticTerminationSupportEnabled:(BOOL)enabled
+{
+    if (!enabled) return; // As on macOS, opting in cannot later be revoked.
+    @synchronized (self) {
+        if (!automaticTerminationSupported) {
+            if (automaticTerminationOptOutCounter > 0) _vproc_transaction_begin();
+            _vproc_transactions_enable();
+            automaticTerminationSupported = YES;
+        }
+    }
+}
+
+- (void)disableAutomaticTermination:(NSString *)reason
+{
+    if (!reason || ![reason length])
+        [NSException raise:NSInvalidArgumentException format:@"Process activity requires a nonempty reason"];
+    @synchronized (self) {
+        if (automaticTerminationOptOutCounter++ == 0 && automaticTerminationSupported)
+            _vproc_transaction_begin();
+    }
+}
+
+- (void)enableAutomaticTermination:(NSString *)reason
+{
+    if (!reason || ![reason length])
+        [NSException raise:NSInvalidArgumentException format:@"Process activity requires a nonempty reason"];
+    @synchronized (self) {
+        if (automaticTerminationOptOutCounter == 0)
+            [NSException raise:NSInternalInconsistencyException format:@"Unbalanced automatic termination enable"];
+        if (--automaticTerminationOptOutCounter == 0 && automaticTerminationSupported)
+            _vproc_transaction_end();
+    }
+}
+@end
+
+@implementation NSProcessInfo (NSProcessInfoActivity)
+- (id<NSObject>)beginActivityWithOptions:(NSActivityOptions)options reason:(NSString *)reason
+{
+    if (!reason || ![reason length])
+        [NSException raise:NSInvalidArgumentException format:@"Process activity requires a nonempty reason"];
+    if (options & NSActivityLatencyCritical)
+        [NSException raise:NSInvalidArgumentException
+                    format:@"Latency-critical process activities are not supported"];
+    return [[[_NSProcessActivity alloc] initWithOptions:options reason:reason] autorelease];
+}
+
+- (void)endActivity:(id<NSObject>)activity
+{
+    if (![(id)activity isKindOfClass:[_NSProcessActivity class]])
+        [NSException raise:NSInvalidArgumentException format:@"Not a process activity token"];
+    IOReturn error = [(_NSProcessActivity *)activity finish];
+    if (error != kIOReturnSuccess)
+        [NSException raise:NSInternalInconsistencyException
+                    format:@"Cannot release process activity power assertion: 0x%x", error];
+}
+
+- (void)performActivityWithOptions:(NSActivityOptions)options reason:(NSString *)reason usingBlock:(void (^)(void))block
+{
+    if (!block)
+        [NSException raise:NSInvalidArgumentException format:@"Process activity requires a block"];
+    id<NSObject> activity = [[self beginActivityWithOptions:options reason:reason] retain];
+    @try {
+        block();
+    } @finally {
+        @try {
+            [self endActivity:activity];
+        } @finally {
+            [activity release];
+        }
+    }
+}
 @end
 
 @implementation NSProcessInfo (NSProcessInfoPlatform)

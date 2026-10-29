@@ -302,6 +302,7 @@ add_separated_framework(Foundation
 		objc
 		system
 		CoreFoundation
+		IOKit
 		# NSListFormatter's join is ICU's list formatter (ulistfmt_open/ulistfmt_format): the list
 		# pattern is CLDR data, and libicucore is the only list formatter this tree carries -- the
 		# same image the payload's Swift Foundation binds and CoreFoundation already links.
