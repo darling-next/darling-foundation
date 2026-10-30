@@ -185,7 +185,7 @@ static UBool enumerateFindProgressCallback(const void *context, int64_t matchInd
         return;
     }
 
-    URegularExpression *regexp = (URegularExpression *)_internal;
+    URegularExpression *sharedRegexp = (URegularExpression *)_internal;
     const UChar *text = CFStringGetCharactersPtr((CFStringRef)string);
     NSUInteger captureGroups = [self numberOfCaptureGroups];
     int32_t len = (int32_t)[string length];
@@ -198,6 +198,25 @@ static UBool enumerateFindProgressCallback(const void *context, int64_t matchInd
     }
 
     UErrorCode error = U_ZERO_ERROR;
+    /* ICU's contract: "Each concurrent RE operation requires its own instance of URegularExpression"
+     * (icuSources/i18n/unicode/uregex.h). This class compiles ONE matcher in -init, and every enumeration
+     * mutated it through setText/setRegion/findNext, so concurrent enumerations on one NSRegularExpression
+     * shared the text, the bounds, the callbacks AND the matcher's internal match stack. MEASURED: three
+     * workers matching the same compiled Git-progress expression drove one shared matcher past the end of
+     * its own compiled program and aborted inside ICU, which killed SwiftPM's dependency fetch.
+     * uregex_clone shares the compiled pattern under ICU's own refcount and gives THIS operation private
+     * text, bounds, region, callbacks and match stack -- the isolation ICU documents, not a lock around
+     * user callbacks (which would have to survive reentrant enumeration). */
+    URegularExpression *regexp = uregex_clone(sharedRegexp, &error);
+    if (regexp == NULL)
+    {
+        if (needsFree)
+        {
+            free((UChar *)text);
+        }
+        DEBUG_LOG("ICU failure cloning matcher %s (%d)", u_errorName(error), (int)error);
+        return;
+    }
     uregex_setText(regexp, text, len, &error);
     matchBlock match = ^UBool(int32_t matchIndex) {
         UBool shouldStop = FALSE;
@@ -328,6 +347,9 @@ static UBool enumerateFindProgressCallback(const void *context, int64_t matchInd
         }
     }
     
+    /* This operation's own matcher; the shared compiled pattern stays owned by _internal. */
+    uregex_close(regexp);
+
     if (needsFree)
     {
         free((UChar *)text);
