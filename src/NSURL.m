@@ -105,6 +105,15 @@ OBJC_PROTOCOL_IMPL_PUSH
 // The isDirectory flag is passed through unexamined: the SDK documents the flag as the caller's
 // statement about the file system, and the tree's existing initializer says the same ("we're
 // supposed to blindly trust the input").
+- (id)initFileURLWithPath:(NSString *)path relativeToURL:(NSURL *)baseURL
+{
+    /* The two-argument initializer Darwin documents (NSURL.h) and SwiftPM calls; without it the guest raised
+     * "-[NSURL initFileURLWithPath:relativeToURL:]: unrecognized selector" and died with SIGILL (measured with a
+     * one-line probe: `[NSURL fileURLWithPath:@".build/checkouts/x" relativeToURL:base]`, rc=132). `isDirectory`
+     * is NO, exactly like the matching class method. */
+    return [self initFileURLWithPath:path isDirectory:NO relativeToURL:baseURL];
+}
+
 - (id)initFileURLWithPath:(NSString *)path isDirectory:(BOOL)isDir relativeToURL:(NSURL *)baseURL
 {
     if (path == nil)
@@ -170,6 +179,12 @@ OBJC_PROTOCOL_IMPL_PUSH
 + (id)fileURLWithPath:(NSString *)path isDirectory:(BOOL)isDir relativeToURL:(NSURL *)baseURL
 {
     return [[[self alloc] initFileURLWithPath:path isDirectory:isDir relativeToURL:baseURL] autorelease];
+}
+
++ (id)fileURLWithPath:(NSString *)path relativeToURL:(NSURL *)baseURL
+{
+    /* See -initFileURLWithPath:relativeToURL: above: Darwin declares this pair and the guest called it. */
+    return [[[self alloc] initFileURLWithPath:path relativeToURL:baseURL] autorelease];
 }
 
 + (id)fileURLWithPath:(NSString *)path
