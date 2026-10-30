@@ -505,6 +505,12 @@ static inline BOOL _NSFileAccessibleForMode(NSString *path, int mode)
     return urls;
 }
 
+// Use the runtime's current-user home resolution, not the named-user lookup.
+- (NSURL *)homeDirectoryForCurrentUser
+{
+    return [NSURL fileURLWithPath:NSHomeDirectory() isDirectory:YES];
+}
+
 // Darwin's relationship between the two APIs of the same name: NSFileManager's temporaryDirectory
 // IS the URL of NSTemporaryDirectory(), directory-flagged so that the trailing slash Darwin's URL
 // carries is preserved. Deriving it here, rather than naming a directory in this file, is what
