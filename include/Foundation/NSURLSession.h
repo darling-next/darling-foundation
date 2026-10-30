@@ -33,6 +33,7 @@ NS_ASSUME_NONNULL_BEGIN
 @class NSURLResponse, NSURLSession, NSURLSessionConfiguration;
 @class NSURLSessionTask, NSURLSessionDataTask, NSURLSessionDownloadTask;
 @class NSURLSessionUploadTask, NSSet;
+@class NSURLSessionWebSocketTask, NSURLSessionWebSocketMessage;
 
 @protocol NSURLSessionDelegate <NSObject>
 @optional
@@ -98,6 +99,9 @@ FOUNDATION_EXPORT NSString * const NSURLSessionDownloadTaskResumeData;
 - (NSURLSessionDownloadTask *)downloadTaskWithRequest:(NSURLRequest *)request;
 - (NSURLSessionDownloadTask *)downloadTaskWithURL:(NSURL *)url;
 - (NSURLSessionDownloadTask *)downloadTaskWithResumeData:(NSData *)resumeData;
+- (NSURLSessionWebSocketTask *)webSocketTaskWithRequest:(NSURLRequest *)request;
+- (NSURLSessionWebSocketTask *)webSocketTaskWithURL:(NSURL *)url;
+- (NSURLSessionWebSocketTask *)webSocketTaskWithURL:(NSURL *)url protocols:(NSArray *)protocols;
 
 @end
 
@@ -126,6 +130,7 @@ FOUNDATION_EXPORT NSString * const NSURLSessionDownloadTaskResumeData;
 @property (nullable, copy) NSString *taskDescription;
 @property (readonly) NSURLSessionTaskState state;
 @property (nullable, readonly, copy) NSError *error;
+@property (nullable, retain) id<NSURLSessionTaskDelegate> delegate;
 
 - (void)cancel;
 - (void)suspend;
@@ -143,6 +148,59 @@ FOUNDATION_EXPORT NSString * const NSURLSessionDownloadTaskResumeData;
 
 - (void)cancelByProducingResumeData:(void (^)(NSData * _Nullable resumeData))completionHandler;
 
+@end
+
+/* Objective-C wire message and Swift overlay names follow Apple's public SDK
+ * and swift-corelibs-foundation Darwin/Foundation-swiftoverlay/URLSession.swift.
+ */
+typedef NS_ENUM(NSInteger, NSURLSessionWebSocketMessageType) {
+    NSURLSessionWebSocketMessageTypeData = 0,
+    NSURLSessionWebSocketMessageTypeString = 1,
+};
+
+typedef NS_ENUM(NSInteger, NSURLSessionWebSocketCloseCode) {
+    NSURLSessionWebSocketCloseCodeInvalid = 0,
+    NSURLSessionWebSocketCloseCodeNormalClosure = 1000,
+    NSURLSessionWebSocketCloseCodeGoingAway = 1001,
+    NSURLSessionWebSocketCloseCodeProtocolError = 1002,
+    NSURLSessionWebSocketCloseCodeUnsupportedData = 1003,
+    NSURLSessionWebSocketCloseCodeNoStatusReceived = 1005,
+    NSURLSessionWebSocketCloseCodeAbnormalClosure = 1006,
+    NSURLSessionWebSocketCloseCodeInvalidFramePayloadData = 1007,
+    NSURLSessionWebSocketCloseCodePolicyViolation = 1008,
+    NSURLSessionWebSocketCloseCodeMessageTooBig = 1009,
+    NSURLSessionWebSocketCloseCodeMandatoryExtensionMissing = 1010,
+    NSURLSessionWebSocketCloseCodeInternalServerError = 1011,
+    NSURLSessionWebSocketCloseCodeTLSHandshakeFailure = 1015,
+};
+
+NS_SWIFT_NAME(__NSURLSessionWebSocketMessage)
+@interface NSURLSessionWebSocketMessage : NSObject <NSCopying> {
+@private
+    NSData *_data;
+    NSString *_string;
+}
+- (instancetype)initWithData:(NSData *)data;
+- (instancetype)initWithString:(NSString *)string;
+@property (readonly) NSURLSessionWebSocketMessageType type;
+@property (nullable, readonly, copy) NSData *data;
+@property (nullable, readonly, copy) NSString *string;
+@end
+
+@interface NSURLSessionWebSocketTask : NSURLSessionTask
+@property NSInteger maximumMessageSize;
+@property (readonly) NSURLSessionWebSocketCloseCode closeCode;
+@property (nullable, readonly, copy) NSData *closeReason;
+- (void)sendMessage:(NSURLSessionWebSocketMessage *)message completionHandler:(void (^)(NSError * _Nullable error))completionHandler NS_SWIFT_NAME(__send(_:completionHandler:));
+- (void)receiveMessageWithCompletionHandler:(void (^)(NSURLSessionWebSocketMessage * _Nullable message, NSError * _Nullable error))completionHandler NS_SWIFT_NAME(__receiveMessage(completionHandler:));
+- (void)sendPingWithPongReceiveHandler:(void (^)(NSError * _Nullable error))pongReceiveHandler;
+- (void)cancelWithCloseCode:(NSURLSessionWebSocketCloseCode)closeCode reason:(nullable NSData *)reason;
+@end
+
+@protocol NSURLSessionWebSocketDelegate <NSURLSessionTaskDelegate>
+@optional
+- (void)URLSession:(NSURLSession *)session webSocketTask:(NSURLSessionWebSocketTask *)webSocketTask didOpenWithProtocol:(nullable NSString *)protocol;
+- (void)URLSession:(NSURLSession *)session webSocketTask:(NSURLSessionWebSocketTask *)webSocketTask didCloseWithCode:(NSURLSessionWebSocketCloseCode)closeCode reason:(nullable NSData *)reason;
 @end
 
 @interface NSURLSessionConfiguration : NSObject <NSCopying>

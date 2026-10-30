@@ -132,6 +132,12 @@ Classes:
   SwiftName: HTTPURLResponse
 - Name: NSURLSessionDataTask
   SwiftName: URLSessionDataTask
+- Name: NSURLSessionTask
+  SwiftName: URLSessionTask
+- Name: NSURLSessionDownloadTask
+  SwiftName: URLSessionDownloadTask
+- Name: NSURLSessionWebSocketTask
+  SwiftName: URLSessionWebSocketTask
 - Name: NSFileManager
   SwiftName: FileManager
 - Name: NSProcessInfo
