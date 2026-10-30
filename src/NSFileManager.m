@@ -962,7 +962,19 @@ static NSError *_NSErrorWithFilePathAndErrno(id path, int code)
             return NO;
         }
     }
+    /* copyfile(3) copies NOTHING for a directory source unless COPYFILE_RECURSIVE is requested: it returns 0
+     * and leaves the destination empty. MEASURED: `copyItemAtPath:` of a three-level tree reported success and
+     * produced an empty directory, and SwiftPM's dependency cache materialisation ("Fetched … from cache") put
+     * EMPTY repositories into .build/repositories, so every pinned version "did not match" and resolution
+     * failed. Darwin's NSFileManager copies hierarchies, so this must too. */
+    struct stat srcStat;
+    BOOL srcIsDirectory = (stat([srcPath fileSystemRepresentation], &srcStat) == 0) && S_ISDIR(srcStat.st_mode);
+
     copyfile_flags_t flags = COPYFILE_DATA;
+    if (srcIsDirectory)
+    {
+        flags |= COPYFILE_RECURSIVE;
+    }
     if (error != NULL)
     {
         *error = nil;
