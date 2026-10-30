@@ -27,6 +27,9 @@
 - Directory creation reports Cocoa file-write errors with the failed path and
   the underlying POSIX error, using the existing vendored errno mapping.
   An existing directory fails without intermediate creation and succeeds with it.
+- File removal reports Cocoa file-write errors with the failed path and the
+  underlying POSIX error. A missing item remains a failure, reported as
+  `NSFileNoSuchFileError`, so callers can distinguish absence from other errors.
 - `NSFileHandle` pipe reads preserve data beyond the first buffer and stop at the
   requested length or EOF. A zero-length read does not consume stream data.
   `test/file-io-guest.m` covers directory-error recovery and bounded/EOF pipe reads

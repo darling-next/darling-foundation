@@ -43,6 +43,12 @@ static void directory_errors(void) {
     check([[NSData dataWithContentsOfFile:attachment] isEqualToData:contents], "attachment contents preserved");
     error = nil;
     check([manager removeItemAtPath:base error:&error], "remove fixture directory");
+    error = nil;
+    check(![manager removeItemAtPath:base error:&error], "repeated removal reports missing item");
+    check([[error domain] isEqual:NSCocoaErrorDomain] && [error code] == NSFileNoSuchFileError, "missing removal has recoverable Cocoa error");
+    underlying = [[error userInfo] objectForKey:NSUnderlyingErrorKey];
+    check([[underlying domain] isEqual:NSPOSIXErrorDomain] && [underlying code] == ENOENT, "missing removal retains underlying ENOENT");
+    check([[[error userInfo] objectForKey:NSFilePathErrorKey] isEqual:base], "missing removal retains failed path");
 }
 
 struct writer {

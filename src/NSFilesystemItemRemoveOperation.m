@@ -12,6 +12,7 @@
 #import <stdlib.h>
 #import <stdio.h>
 #import <Foundation/NSError.h>
+#import "_NSFileIO.h"
 
 @implementation NSFilesystemItemRemoveOperation
 
@@ -22,14 +23,9 @@
 
 + (NSError *)_errorWithErrno:(int)err atPath:(NSString *)path
 {
-    NSDictionary *info = nil;
-    if (path != nil)
-    {
-        info = @{
-            NSFilePathErrorKey: path
-        };
-    }
-    return [NSError errorWithDomain:NSPOSIXErrorDomain code:err userInfo:info];
+    // Removal is a write operation. Preserve errno as the underlying error,
+    // while exposing the Cocoa file error callers use for recovery.
+    return _NSErrorWithFilePathErrnoAndVariant(err, path, 0, 0);
 }
 
 - (id)initWithPath:(NSString *)path
