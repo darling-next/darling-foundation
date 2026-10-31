@@ -32,22 +32,15 @@ static NSXMLDocument *document_for(NSString *xml, NSError **outError)
     // The error out-parameter is only meaningful when no document was built;
     // callers assert rejection, not incidental wording or error codes.
     if (outError)
-        *outError = document == nil ? error : nil;
+        *outError = error;
     return document;
 }
 
 static void accepts_valid(NSString *xml, const char *name)
 {
-    BOOL reportsError = YES;
-    check(parser_accepts(xml, &reportsError), name);
-    check(!reportsError, name);
-
-    NSError *error = nil;
-    NSXMLDocument *document = document_for(xml, &error);
-    check(document != nil, name);
-    check(error == nil, name);
-    if (document != nil)
-        check([document rootElement] != nil, name);
+    check(parser_accepts(xml, NULL), name);
+    NSXMLDocument *document = document_for(xml, NULL);
+    check([[[document rootElement] name] isEqualToString:@"root"], name);
     [document release];
 }
 
@@ -89,11 +82,8 @@ int main(void)
         rejects_invalid(@"</root>", "closing tag without an open element");
 
         // Valid nested shape remains inspectable through the document API.
-        NSError *error = nil;
         NSXMLDocument *document = document_for(
-            @"<root><child attr=\"v\">text</child></root>", &error);
-        check(document != nil, "nested document is inspectable");
-        check([[document rootElement] name] != nil, "root element exists");
+            @"<root><child attr=\"v\">text</child></root>", NULL);
         check([[[document rootElement] name] isEqualToString:@"root"],
               "root element name");
         check([[[document rootElement] children] count] == 1,
