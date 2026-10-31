@@ -27,6 +27,9 @@
 - Directory creation reports Cocoa file-write errors with the failed path and
   the underlying POSIX error, using the existing vendored errno mapping.
   An existing directory fails without intermediate creation and succeeds with it.
+  Concurrent intermediate creators recheck an `EEXIST` component and converge
+  only when it is now a directory. Non-directory `EEXIST` collisions, including
+  dangling symlinks, preserve the original file error, path and underlying POSIX error.
 - File removal reports Cocoa file-write errors with the failed path and the
   underlying POSIX error. A missing item remains a failure, reported as
   `NSFileNoSuchFileError`, so callers can distinguish absence from other errors.
