@@ -58,3 +58,10 @@
   `NSOrderedSame`. Mapping equality to `NSOrderedDescending` made a decoded
   `CFNumber` report itself unequal to an equal number literal
   (`NSConstantIntegerNumber`), while the reverse direction compared equal.
+- `NSXMLParser` rejects EOF with open elements or unfinished markup, and a
+  closing tag must match the innermost open element. These failures populate
+  `parserError` and notify an interested error delegate; `NSXMLDocument` then
+  returns nil instead of exposing a partial tree.
+  `test/xml-parser-wellformed-guest.m` checks these rejection boundaries and
+  usable self-closed/nested documents through both public APIs. Compile it
+  with guest `clang -fno-objc-arc -framework Foundation`.
