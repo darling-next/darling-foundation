@@ -51,6 +51,60 @@ static void directory_errors(void) {
     check([[[error userInfo] objectForKey:NSFilePathErrorKey] isEqual:base], "missing removal retains failed path");
 }
 
+static void check_paths(NSArray *actual, NSArray *expected, const char *operation) {
+    check(actual != nil && [actual count] == [expected count] &&
+          [[NSSet setWithArray:actual] isEqualToSet:[NSSet setWithArray:expected]], operation);
+}
+
+static void directory_subpaths(void) {
+    char root[] = "/private/var/tmp/foundation-subpaths-XXXXXX";
+    if (!mkdtemp(root)) { check(NO, "create recursive fixture directory"); return; }
+    NSString *base = [NSString stringWithUTF8String:root];
+    NSFileManager *manager = [NSFileManager defaultManager];
+    NSArray *directories = @[@"empty", @"left", @"left/deep", @"right"];
+    NSDictionary *contents = @{
+        @"same.swift": @"root contents",
+        @"left/same.swift": @"left contents",
+        @"left/deep/unique.swift": @"deep contents",
+        @"right/same.swift": @"right contents",
+        @"leaf-link.swift": @"left contents"
+    };
+    for (NSString *directory in directories) {
+        check([manager createDirectoryAtPath:[base stringByAppendingPathComponent:directory]
+                withIntermediateDirectories:NO attributes:nil error:NULL], "create nested fixture directory");
+    }
+    for (NSString *path in contents) {
+        if ([path isEqualToString:@"leaf-link.swift"]) continue;
+        check([[contents objectForKey:path] writeToFile:[base stringByAppendingPathComponent:path]
+                atomically:NO encoding:NSUTF8StringEncoding error:NULL], "write distinct nested fixture contents");
+    }
+    check(symlink("left/same.swift", [[base stringByAppendingPathComponent:@"leaf-link.swift"] fileSystemRepresentation]) == 0,
+          "create file symlink");
+    check(symlink("left", [[base stringByAppendingPathComponent:@"directory-link"] fileSystemRepresentation]) == 0,
+          "create directory symlink");
+    NSArray *expected = [directories arrayByAddingObjectsFromArray:[contents allKeys]];
+    expected = [expected arrayByAddingObject:@"directory-link"];
+    NSArray *subpaths = [manager subpathsOfDirectoryAtPath:base error:NULL];
+    check_paths(subpaths, expected, "recursive paths are root-relative, distinct and do not descend symlinks");
+    for (NSString *path in subpaths) {
+        if (![[path pathExtension] isEqualToString:@"swift"]) continue;
+        NSString *text = [NSString stringWithContentsOfFile:[base stringByAppendingPathComponent:path]
+                encoding:NSUTF8StringEncoding error:NULL];
+        check([text isEqualToString:[contents objectForKey:path]], "enumerated nested file resolves to its own contents");
+    }
+    NSArray *shallow = @[@"empty", @"left", @"right", @"same.swift", @"leaf-link.swift", @"directory-link"];
+    check_paths([manager contentsOfDirectoryAtPath:base error:NULL], shallow, "shallow string listing stays shallow");
+    NSMutableArray *urlPaths = [NSMutableArray array];
+    for (NSURL *url in [manager contentsOfDirectoryAtURL:[NSURL fileURLWithPath:base]
+                includingPropertiesForKeys:@[] options:0 error:NULL]) {
+        [urlPaths addObject:[url path]];
+    }
+    NSMutableArray *expectedURLs = [NSMutableArray array];
+    for (NSString *path in shallow) [expectedURLs addObject:[base stringByAppendingPathComponent:path]];
+    check_paths(urlPaths, expectedURLs, "URL listing retains complete child paths");
+    check([manager removeItemAtPath:base error:NULL], "remove recursive fixture directory");
+}
+
 struct writer {
     int fd;
     const unsigned char *bytes;
@@ -100,6 +154,7 @@ int main(void) {
     @autoreleasepool {
         @try {
             directory_errors();
+            directory_subpaths();
             pipe_contents(0, 0);
             pipe_contents(17, 0);
             pipe_contents(4096, NSUIntegerMax);

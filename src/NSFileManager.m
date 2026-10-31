@@ -269,6 +269,7 @@ static inline BOOL _NSFileAccessibleForMode(NSString *path, int mode)
     NSMutableArray *files = [NSMutableArray array];
     NSError* localError = nil;
     [self _directoryContentsAtPath:path 
+                relativePath:nil
                 matchingExtension:extension
                 options:options
                 keepExtension:keepExtension
@@ -294,7 +295,7 @@ static inline BOOL _NSFileAccessibleForMode(NSString *path, int mode)
     }
 }
 
-- (void)_directoryContentsAtPath:(NSString *)path matchingExtension:(NSString *)extension options:(NSDirectoryEnumerationOptions)options keepExtension:(BOOL)keepExtension error:(NSError **)error toResult:(NSMutableArray *)files
+- (void)_directoryContentsAtPath:(NSString *)path relativePath:(NSString *)relativePath matchingExtension:(NSString *)extension options:(NSDirectoryEnumerationOptions)options keepExtension:(BOOL)keepExtension error:(NSError **)error toResult:(NSMutableArray *)files
 {
     DIR *dirp = opendir([path fileSystemRepresentation]);
     if (!dirp) {
@@ -309,6 +310,7 @@ static inline BOOL _NSFileAccessibleForMode(NSString *path, int mode)
 
     struct dirent buffer;
     struct dirent *dp;
+    const BOOL generateURLs = (options & NSDirectoryEnumerationGenerateURLs) != 0;
 
     while ((0 == readdir_r(dirp, &buffer, &dp)) && dp) {
         unsigned namelen = strlen(dp->d_name);
@@ -323,9 +325,16 @@ static inline BOOL _NSFileAccessibleForMode(NSString *path, int mode)
         }
 
         NSString *item = [NSString stringWithUTF8String:dp->d_name];
-        if (!(extension != nil && ![[item pathExtension] isEqualToString:extension]))
+        const BOOL matchesExtension = extension == nil || [[item pathExtension] isEqualToString:extension];
+        const BOOL recurse = dp->d_type == DT_DIR && (options & NSDirectoryEnumerationRecursive) != 0;
+        NSString *relativeItem = item;
+        if (!generateURLs && relativePath != nil && (matchesExtension || recurse))
         {
-            if ((options & NSDirectoryEnumerationGenerateURLs) != 0)
+            relativeItem = [relativePath stringByAppendingPathComponent:item];
+        }
+        if (matchesExtension)
+        {
+            if (generateURLs)
             {
                 [files addObject:[NSURL fileURLWithPath:[path stringByAppendingPathComponent:item]]];
             }
@@ -333,19 +342,20 @@ static inline BOOL _NSFileAccessibleForMode(NSString *path, int mode)
             {
                 if (!keepExtension)
                 {
-                    [files addObject:[item stringByDeletingPathExtension]];
+                    [files addObject:[relativeItem stringByDeletingPathExtension]];
                 }
                 else
                 {
-                    [files addObject:item];
+                    [files addObject:relativeItem];
                 }
             }
         }
 
         // should NSDirectoryEnumerationSkipsPackageDescendants be checked somehow here?
-        if (dp->d_type == DT_DIR && (options & NSDirectoryEnumerationRecursive) != 0)
+        if (recurse)
         {
             [self _directoryContentsAtPath:[path stringByAppendingPathComponent:item] 
+                                                relativePath:generateURLs ? nil : relativeItem
                                             matchingExtension:extension
                                                       options:options
                                                 keepExtension:keepExtension
