@@ -41,9 +41,11 @@
   `test/unarchive-xml-guest.m` exercises both missing entries, the legacy
   exception, and successful decoding after failure. Compile it with guest
   `clang -fno-objc-arc -framework Foundation` and run the resulting guest binary.
-  The decoder releases each owned map exactly once and does not decode an array
-  element whose offset/UID could not be read; a valid archive still decodes after
-  any number of rejected ones.
+  A successful decode asserts the consumer-visible decoded value; the NSError
+  out-parameter is inspected only on failure, where its domain and code are
+  checked. The decoder releases each owned map exactly once and does not decode
+  an array element whose offset/UID could not be read; a valid archive still
+  decodes after any number of rejected ones.
 - `-[NSDictionary classForCoder]` is implemented on the public base class so
   every Foundation subclass answers the concrete `NSDictionary` /
   `NSMutableDictionary` class, as the keyed archiver requires. A bridged Swift
