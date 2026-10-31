@@ -935,14 +935,14 @@ static NSError *_NSErrorWithFilePathAndErrno(id path, int code)
     {
         return NO;
     }
-    int err = symlink([path UTF8String], [destPath UTF8String]);
+    // symlink(2) takes the link target first and the new link path second, which is the reverse
+    // of the atPath:/withDestinationPath: labels: the link itself must appear at `path`.
+    int err = symlink([destPath fileSystemRepresentation], [path fileSystemRepresentation]);
     if (err == -1)
     {
         if (error)
         {
-            *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:@{
-                NSLocalizedDescriptionKey: [NSString stringWithUTF8String:strerror(errno)]
-            }];
+            *error = _NSErrorWithFilePathErrnoAndVariant(errno, path, 0, 0);
         }
         return NO;
     }
@@ -951,18 +951,64 @@ static NSError *_NSErrorWithFilePathAndErrno(id path, int code)
 
 - (NSString *)destinationOfSymbolicLinkAtPath:(NSString *)path error:(NSError **)error
 {
-    char resolved[PATH_MAX];
-    if (realpath([path fileSystemRepresentation], resolved) == NULL)
+    if (error)
     {
-        if (error)
-        {
-            *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:@{
-                NSLocalizedDescriptionKey: [NSString stringWithUTF8String:strerror(errno)]
-            }];
-        }
-        return nil;
+        *error = nil;
     }
-    return [NSString stringWithUTF8String:resolved];
+    // Return the link's stored contents, without resolving relative or dangling destinations.
+    const char *linkPath = [path fileSystemRepresentation];
+    char stackTarget[PATH_MAX + 1];
+    char *target = stackTarget;
+    size_t capacity = sizeof(stackTarget);
+    for (;;)
+    {
+        ssize_t length = readlink(linkPath, target, capacity);
+        if (length < 0)
+        {
+            int readError = errno;
+            if (target != stackTarget)
+            {
+                free(target);
+            }
+            if (error)
+            {
+                *error = _NSErrorWithFilePathErrnoAndVariant(readError, path, 1, 0);
+            }
+            return nil;
+        }
+        if ((size_t)length < capacity)
+        {
+            NSString *destination = [self stringWithFileSystemRepresentation:target length:(NSUInteger)length];
+            if (target != stackTarget)
+            {
+                free(target);
+            }
+            return destination;
+        }
+        // A full buffer does not prove the destination fit: readlink truncates instead of failing.
+        // Grow and re-read so a long stored target is returned whole; the truncated bytes are
+        // discarded rather than carried over.
+        size_t grown = capacity * 2;
+        char *buffer = grown > capacity ? malloc(grown) : NULL;
+        if (buffer == NULL)
+        {
+            if (target != stackTarget)
+            {
+                free(target);
+            }
+            if (error)
+            {
+                *error = _NSErrorWithFilePathErrnoAndVariant(ENOMEM, path, 1, 0);
+            }
+            return nil;
+        }
+        if (target != stackTarget)
+        {
+            free(target);
+        }
+        target = buffer;
+        capacity = grown;
+    }
 }
 
 

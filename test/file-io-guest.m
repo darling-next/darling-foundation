@@ -1,9 +1,11 @@
 #import <Foundation/Foundation.h>
 #include <errno.h>
+#include <limits.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 static int failures;
@@ -65,6 +67,92 @@ static void directory_errors(void) {
     underlying = [[error userInfo] objectForKey:NSUnderlyingErrorKey];
     check([[underlying domain] isEqual:NSPOSIXErrorDomain] && [underlying code] == ENOENT, "missing removal retains underlying ENOENT");
     check([[[error userInfo] objectForKey:NSFilePathErrorKey] isEqual:base], "missing removal retains failed path");
+}
+
+static void symlink_operations(void) {
+    char root[] = "/private/var/tmp/foundation-symlink-XXXXXX";
+    if (!mkdtemp(root)) { check(NO, "create symlink fixture directory"); return; }
+    NSString *base = [NSString stringWithUTF8String:root];
+    NSFileManager *manager = [NSFileManager defaultManager];
+    NSString *target = [base stringByAppendingPathComponent:@"target.txt"];
+    NSString *link = [base stringByAppendingPathComponent:@"link.txt"];
+    NSData *contents = [@"link target contents" dataUsingEncoding:NSUTF8StringEncoding];
+    NSError *error = nil;
+    check([contents writeToFile:target options:0 error:&error], "write symlink target file");
+    check([manager createSymbolicLinkAtPath:link withDestinationPath:target error:&error],
+          "create symbolic link at the requested path");
+    struct stat info;
+    check(lstat([link fileSystemRepresentation], &info) == 0 && S_ISLNK(info.st_mode),
+          "the requested path is itself a symbolic link");
+    char stored[PATH_MAX];
+    ssize_t storedLength = readlink([link fileSystemRepresentation], stored, sizeof(stored));
+    const char *destination = [target fileSystemRepresentation];
+    check(storedLength == (ssize_t)strlen(destination) && memcmp(stored, destination, (size_t)storedLength) == 0,
+          "link stores the requested destination");
+    check([[manager destinationOfSymbolicLinkAtPath:link error:NULL] isEqualToString:target],
+          "destination lookup returns the stored absolute destination");
+    check([[NSData dataWithContentsOfFile:link] isEqualToData:contents],
+          "reading through the link returns target contents");
+    NSString *subdirectory = [base stringByAppendingPathComponent:@"sub"];
+    check([manager createDirectoryAtPath:subdirectory withIntermediateDirectories:NO attributes:nil error:NULL],
+          "create link destination subdirectory");
+    NSString *unnormalized = [base stringByAppendingPathComponent:@"sub/../target.txt"];
+    NSString *storedLink = [base stringByAppendingPathComponent:@"stored.txt"];
+    check([manager createSymbolicLinkAtPath:storedLink withDestinationPath:unnormalized error:NULL],
+          "create symbolic link with an unnormalized destination");
+    check([[manager destinationOfSymbolicLinkAtPath:storedLink error:NULL] isEqualToString:unnormalized],
+          "destination lookup returns the destination as stored, not resolved");
+    check([[NSData dataWithContentsOfFile:storedLink] isEqualToData:contents],
+          "unnormalized destination resolves to the target file");
+    NSString *dangling = [base stringByAppendingPathComponent:@"dangling.txt"];
+    NSString *missing = [base stringByAppendingPathComponent:@"missing-target.txt"];
+    check([manager createSymbolicLinkAtPath:dangling withDestinationPath:missing error:NULL],
+          "create dangling symbolic link");
+    check([[manager destinationOfSymbolicLinkAtPath:dangling error:NULL] isEqualToString:missing],
+          "dangling destination lookup succeeds");
+    check(![manager fileExistsAtPath:dangling], "dangling link does not claim a target file");
+    // The runtime stores destinations longer than the path buffer; the getter must return the
+    // stored bytes whole instead of stopping at its buffer size.
+    size_t longLength = (size_t)PATH_MAX + 512;
+    char *longTarget = malloc(longLength + 1);
+    char *longStored = malloc(longLength + 1);
+    check(longTarget != NULL && longStored != NULL, "allocate long destination fixture");
+    if (longTarget != NULL && longStored != NULL) {
+        longTarget[0] = '/';
+        memset(longTarget + 1, 'x', longLength - 1);
+        longTarget[longLength] = '\0';
+        NSString *longLink = [base stringByAppendingPathComponent:@"long.txt"];
+        int linked = symlink(longTarget, [longLink fileSystemRepresentation]);
+        check(linked == 0, "create destination longer than the runtime path buffer");
+        if (linked == 0) {
+            ssize_t storedLong = readlink([longLink fileSystemRepresentation], longStored, longLength + 1);
+            check(storedLong == (ssize_t)longLength && memcmp(longStored, longTarget, longLength) == 0,
+                  "filesystem preserves the complete long destination");
+            if (storedLong > 0 && (size_t)storedLong <= longLength) {
+                longStored[storedLong] = '\0';
+                NSString *longDestination = [manager destinationOfSymbolicLinkAtPath:longLink error:NULL];
+                const char *longDestinationBytes = [longDestination UTF8String];
+                check(longDestinationBytes != NULL &&
+                      [longDestination length] == (NSUInteger)storedLong &&
+                      strcmp(longDestinationBytes, longStored) == 0,
+                      "destination lookup returns a stored target longer than the path buffer");
+            }
+        }
+    }
+    free(longTarget);
+    free(longStored);
+    error = nil;
+    check(![manager createSymbolicLinkAtPath:link withDestinationPath:target error:&error],
+          "existing link path rejects a second link");
+    check([[error domain] isEqual:NSCocoaErrorDomain] && [error code] == NSFileWriteFileExistsError,
+          "existing link path has Cocoa file-exists error");
+    check([[[error userInfo] objectForKey:NSFilePathErrorKey] isEqual:link],
+          "existing link path retains the failed path");
+    NSError *underlying = [[error userInfo] objectForKey:NSUnderlyingErrorKey];
+    check([[underlying domain] isEqual:NSPOSIXErrorDomain] && [underlying code] == EEXIST,
+          "existing link path retains underlying EEXIST");
+    error = nil;
+    check([manager removeItemAtPath:base error:&error], "remove symlink fixture directory");
 }
 
 static void check_paths(NSArray *actual, NSArray *expected, const char *operation) {
@@ -170,6 +258,7 @@ int main(void) {
     @autoreleasepool {
         @try {
             directory_errors();
+            symlink_operations();
             directory_subpaths();
             pipe_contents(0, 0);
             pipe_contents(17, 0);

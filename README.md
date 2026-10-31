@@ -33,10 +33,18 @@
 - File removal reports Cocoa file-write errors with the failed path and the
   underlying POSIX error. A missing item remains a failure, reported as
   `NSFileNoSuchFileError`, so callers can distinguish absence from other errors.
+- Symbolic links are created at the requested path and store the requested
+  destination verbatim, including relative, unnormalized and dangling
+  destinations, and the getter returns a stored destination whole even when it
+  is longer than the path buffer. Creating a link rejects an occupied path with
+  a Cocoa file-exists error carrying the failed path and the underlying POSIX
+  error; a getter read or buffer-allocation failure is reported instead of a
+  shortened destination. `test/file-io-guest.m` checks these link semantics.
 - `NSFileHandle` pipe reads preserve data beyond the first buffer and stop at the
   requested length or EOF. A zero-length read does not consume stream data.
-  `test/file-io-guest.m` covers directory-error recovery and bounded/EOF pipe reads
-  through the public guest APIs.
+  `test/file-io-guest.m` covers directory-error recovery, symbolic-link
+  creation and destination semantics, and bounded/EOF pipe reads through the
+  public guest APIs.
 - `-[NSFileManager subpathsOfDirectoryAtPath:error:]` retains each descendant's
   path relative to the requested root, including intervening directory names.
   Equal basenames in separate directories remain distinct and resolve when
