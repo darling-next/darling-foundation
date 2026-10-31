@@ -1522,7 +1522,7 @@ CF_INLINE Boolean isALineSeparatorTypeCharacter(UniChar ch, Boolean includeLineE
         else
         {
             NSInteger idx = range.location;
-            ch = [self characterAtIndex:idx];
+            ch = (NSUInteger)idx < len ? [self characterAtIndex:idx] : 0;
             idx--;
             if (ch == NewLine && [self characterAtIndex:idx] == CarriageReturn)
             {
@@ -1593,7 +1593,8 @@ CF_INLINE Boolean isALineSeparatorTypeCharacter(UniChar ch, Boolean includeLineE
                 else
                 {
                     idx++;
-                    ch = [self characterAtIndex:idx];
+                    if ((NSUInteger)idx < len)
+                        ch = [self characterAtIndex:idx];
                 }
             }
         }
