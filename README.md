@@ -34,3 +34,10 @@
   requested length or EOF. A zero-length read does not consume stream data.
   `test/file-io-guest.m` covers directory-error recovery and bounded/EOF pipe reads
   through the public guest APIs.
+- XML keyed archives must supply both `$top` and `$objects` before the decoder
+  retains their contents. Missing entries raise
+  `NSInvalidUnarchiveOperationException` through the legacy initializer;
+  `+unarchiveTopLevelObjectWithData:error:` translates this to Cocoa error 4864.
+  `test/unarchive-xml-guest.m` exercises both missing entries, the legacy
+  exception, and successful decoding after failure. Compile it with guest
+  `clang -fno-objc-arc -framework Foundation` and run the resulting guest binary.

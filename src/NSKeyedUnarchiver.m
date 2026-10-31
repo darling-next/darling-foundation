@@ -1023,15 +1023,16 @@ static CFDictionaryValueCallBacks sNSCFDictionaryValueCallBacks = {
                 return nil;
             }
             id top = CFDictionaryGetValue((CFDictionaryRef)plist, @"$top");
-            _objects = CFDictionaryGetValue((CFDictionaryRef)plist, @"$objects");
-            CFRetain(_objects);
+            CFArrayRef objects = CFDictionaryGetValue((CFDictionaryRef)plist, @"$objects");
 
-            if (top == NULL || _objects == NULL)
+            if (top == NULL || objects == NULL)
             {
+                CFRelease(plist);
                 [self release];
                 @throw [NSException exceptionWithName:NSInvalidUnarchiveOperationException reason:@"Improperly formatted archive" userInfo:nil];
                 return nil;
             }
+            _objects = CFRetain(objects);
             _containers = CFArrayCreateMutable(NULL, 0, NULL);
             if (_containers == NULL)
             {
