@@ -23,7 +23,10 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import <Foundation/NSMutableDictionary.h>
 #import <Foundation/NSRaise.h>
 #import <Foundation/NSXMLParser.h>
+#import <Foundation/NSError.h>
 #import <string.h>
+
+NSString * const NSXMLParserErrorDomain = @"NSXMLParserErrorDomain";
 
 enum {
     STATE_content,
@@ -50,6 +53,21 @@ enum {
 };
 
 @implementation NSXMLParser
+
+- (void) recordParseFailure: (NSString *) reason
+                       code: (NSXMLParserError) code
+{
+    if (_parserError != nil)
+        return;
+
+    _parserError = [[NSError alloc] initWithDomain: NSXMLParserErrorDomain
+                                              code: code
+                                          userInfo: @{
+                                              NSLocalizedDescriptionKey : reason
+                                          }];
+    if ([_delegate respondsToSelector: @selector(parser:parseErrorOccurred:)])
+        [_delegate parser: self parseErrorOccurred: _parserError];
+}
 
 - (instancetype) initWithData: (NSData *) data {
     _data = [data retain];
@@ -83,6 +101,7 @@ enum {
 }
 
 - (void) dealloc {
+    [_parserError release];
     [_data release];
     [_entityRefContents release];
     [_elementNameStack release];
@@ -188,7 +207,12 @@ enum {
 }
 
 - (void) eTag: (NSString *) eTag {
-    // FIX, maybe double check name here
+    if (![[_elementNameStack lastObject] isEqualToString: eTag]) {
+        [self recordParseFailure: @"Closing tag does not match the open element"
+                            code: NSXMLParserTagNameMismatchError];
+        return;
+    }
+
     [self didEndElement];
 }
 
@@ -252,7 +276,7 @@ static inline BOOL codeIsNameContinue(uint8_t code) {
     int createNewPool = 0;
     NSAutoreleasePool *pool = nil;
 
-    while (NSMaxRange(_range) < _length) {
+    while (_parserError == nil && NSMaxRange(_range) < _length) {
 
         if (pool == nil)
             pool = [NSAutoreleasePool new];
@@ -558,7 +582,18 @@ static inline BOOL codeIsNameContinue(uint8_t code) {
             pool = nil;
         }
     }
-    return YES;
+
+    // Reaching the end of the data only completes a document when every open
+    // element has been closed and the lexer is back in content. Anything else
+    // is an incomplete lexical construct, an unclosed element or a mismatched
+    // closing tag, none of which describe a well-formed document.
+    if (_parserError == nil &&
+        ([_elementNameStack count] != 0 ||
+         (_state != STATE_content && _state != STATE_ignoreable_content)))
+        [self recordParseFailure: @"Document ended before markup was complete"
+                            code: NSXMLParserPrematureDocumentEndError];
+
+    return _parserError == nil;
 }
 
 - (void) abortParsing {
