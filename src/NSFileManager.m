@@ -596,9 +596,20 @@ static inline BOOL _NSFileAccessibleForMode(NSString *path, int mode)
             BOOL exists = [self fileExistsAtPath:[recomposed path] isDirectory:&isDir];
             if (!exists)
             {
-                isDir = YES;
-                if (![self createDirectoryAtURL:recomposed withIntermediateDirectories:NO attributes:attributes error:error])
+                NSError *creationError = nil;
+                if (![self createDirectoryAtURL:recomposed withIntermediateDirectories:NO attributes:attributes error:&creationError])
                 {
+                    // Another creator may have installed this component after the existence check.
+                    if ([[creationError domain] isEqualToString:NSCocoaErrorDomain] &&
+                        [creationError code] == NSFileWriteFileExistsError &&
+                        [self fileExistsAtPath:[recomposed path] isDirectory:&isDir] && isDir)
+                    {
+                        continue;
+                    }
+                    if (error)
+                    {
+                        *error = creationError;
+                    }
                     return NO;
                 }
             }

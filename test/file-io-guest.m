@@ -41,6 +41,22 @@ static void directory_errors(void) {
     error = nil;
     check([contents writeToFile:attachment options:0 error:&error], "write attachment after repeated directory creation");
     check([[NSData dataWithContentsOfFile:attachment] isEqualToData:contents], "attachment contents preserved");
+    NSString *dangling = [base stringByAppendingPathComponent:@"dangling"];
+    const char target[] = "missing-target";
+    check(symlink(target, [dangling fileSystemRepresentation]) == 0, "create dangling directory-collision control");
+    error = nil;
+    check(![manager createDirectoryAtPath:dangling withIntermediateDirectories:YES attributes:nil error:&error],
+          "dangling symlink cannot satisfy intermediate-directory creation");
+    check([[error domain] isEqual:NSCocoaErrorDomain] && [error code] == NSFileWriteFileExistsError,
+          "non-directory EEXIST retains Cocoa file-exists error");
+    underlying = [[error userInfo] objectForKey:NSUnderlyingErrorKey];
+    check([[underlying domain] isEqual:NSPOSIXErrorDomain] && [underlying code] == EEXIST,
+          "non-directory collision retains underlying EEXIST");
+    check([[[error userInfo] objectForKey:NSFilePathErrorKey] isEqual:dangling], "non-directory collision retains failed path");
+    char destination[sizeof(target)];
+    ssize_t length = readlink([dangling fileSystemRepresentation], destination, sizeof(destination));
+    check(length >= 0 && (size_t)length == sizeof(target) - 1 && memcmp(destination, target, sizeof(target) - 1) == 0,
+          "failed directory creation preserves dangling symlink");
     error = nil;
     check([manager removeItemAtPath:base error:&error], "remove fixture directory");
     error = nil;
