@@ -34,6 +34,11 @@
   requested length or EOF. A zero-length read does not consume stream data.
   `test/file-io-guest.m` covers directory-error recovery and bounded/EOF pipe reads
   through the public guest APIs.
+- `-[NSFileManager subpathsOfDirectoryAtPath:error:]` retains each descendant's
+  path relative to the requested root, including intervening directory names.
+  Equal basenames in separate directories remain distinct and resolve when
+  appended to that root. `test/file-io-guest.m` checks these paths and file
+  contents, with shallow string and complete child-URL listings as controls.
 - XML keyed archives must supply both `$top` and `$objects` before the decoder
   retains their contents. Missing entries raise
   `NSInvalidUnarchiveOperationException` through the legacy initializer;
