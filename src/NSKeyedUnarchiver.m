@@ -826,6 +826,36 @@ static void setClassForClassName(Class cls, NSString *codedName)
     setClassForClassName(cls, codedName);
 }
 
+// Apple's legacy pre-secure-coding top-level entry point. Valid archives decode their
+// root through the coder's own -decodeTopLevelObjectForKey:error: (a missing root is
+// NSCoderValueNotFoundError, Cocoa 4865). Invalid bytes are NSCoderReadCorruptError
+// (Cocoa 4864), including the coder's "Improperly formatted archive" exception path,
+// which the caller's Swift `throws` wrapper cannot catch. Other exceptions propagate.
++ (id)unarchiveTopLevelObjectWithData:(NSData *)data error:(NSError **)error
+{
+    @try {
+        NSKeyedUnarchiver *unarchiver = [[NSKeyedUnarchiver alloc] initForReadingWithData:data];
+        if (unarchiver == nil) {
+            if (error != NULL) {
+                *error = [NSError errorWithDomain:NSCocoaErrorDomain code:4864 userInfo:nil];
+            }
+            return nil;
+        }
+        id root = [[unarchiver decodeTopLevelObjectForKey:NSKeyedArchiveRootObjectKey error:error] retain];
+        [unarchiver finishDecoding];
+        [unarchiver release];
+        return [root autorelease];
+    } @catch (NSException *exception) {
+        if (![[exception name] isEqual:NSInvalidUnarchiveOperationException]) {
+            @throw;
+        }
+        if (error != NULL) {
+            *error = [NSError errorWithDomain:NSCocoaErrorDomain code:4864 userInfo:nil];
+        }
+        return nil;
+    }
+}
+
 + (id)unarchiveObjectWithData:(NSData *)data
 {
     id obj = nil;

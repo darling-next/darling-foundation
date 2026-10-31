@@ -111,6 +111,12 @@ typedef struct offsetDataStruct offsetDataStruct;
     NS_SWIFT_NAME(__unarchivedObject(ofClass:fromData:)) NS_REFINED_FOR_SWIFT;
 + (id)unarchivedObjectOfClasses:(NSSet<Class> *)classes fromData:(NSData *)data error:(NSError **)error
     NS_SWIFT_NAME(__unarchivedObject(ofClasses:fromData:)) NS_REFINED_FOR_SWIFT;
+// The legacy pre-secure-coding top-level entry point Apple's Foundation declares through
+// macOS 10.14. The Swift overlay's `unarchiveTopLevelObjectWithData(_:) throws -> Any?`
+// is this selector's public face; NS_REFINED_FOR_SWIFT keeps that Swift symbol in the
+// overlay module and gives the overlay a typed call instead of a hand-built IMP.
++ (id)unarchiveTopLevelObjectWithData:(NSData *)data error:(NSError **)error
+    NS_SWIFT_NAME(__unarchiveTopLevelObjectWithData(_:)) NS_REFINED_FOR_SWIFT;
 + (id)unarchiveObjectWithData:(NSData *)data;
 + (id)unarchiveObjectWithFile:(NSString *)path;
 - (id)initForReadingWithData:(NSData *)data;
