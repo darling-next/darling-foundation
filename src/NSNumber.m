@@ -630,6 +630,12 @@ static inline id newDecodedNumber(NSCoder *coder)
     return YES;
 }
 
+// CoreFoundation's CFNumberCompare(a, b) dispatches here when a plain Objective-C
+// NSNumber is compared against a CFNumber: `[b _reverseCompare:a]` must answer the
+// result of comparing `b` to `a`, i.e. the negation of -compare:. Equality has no
+// direction, so it must stay NSOrderedSame; returning NSOrderedDescending here made a
+// CFNumber report itself unequal to an equal NSNumber subclass (measured with
+// `[decodedNumber isEqual:@73]`, whose literal is NSConstantIntegerNumber).
 - (NSComparisonResult)_reverseCompare:(id)other
 {
     CFComparisonResult result = CFNumberCompare((CFNumberRef)self, (CFNumberRef)other, NULL);
@@ -639,7 +645,7 @@ static inline id newDecodedNumber(NSCoder *coder)
         case kCFCompareGreaterThan:
             return NSOrderedAscending;
         case kCFCompareEqualTo:
-            return NSOrderedDescending;
+            return NSOrderedSame;
     }
 }
 

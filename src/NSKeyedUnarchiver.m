@@ -1142,9 +1142,6 @@ static CFDictionaryValueCallBacks sNSCFDictionaryValueCallBacks = {
     if (_objects) {
         CFRelease(_objects);
     }
-    if (_refObjMap) {
-        CFRelease(_refObjMap);
-    }
 
     [super dealloc];
 }
@@ -1590,20 +1587,23 @@ static CFDictionaryValueCallBacks sNSCFDictionaryValueCallBacks = {
 
     for (int i = 0; i < len; i++)
     {
-        uint64_t offset2;
+        uint64_t offset2 = 0;
         if (!__CFBinaryPlistGetOffsetForValueFromArray2(_bytes, _len, voffset, &_offsetData->trailer, i, &offset2, _reservedDictionary))
         {
             error = YES;
         }
         NSUInteger uid1 = 0;
-        if (!_getUIDFromData((uint8_t *)(_bytes + offset2), &uid1))
+        if (!error && !_getUIDFromData((uint8_t *)(_bytes + offset2), &uid1))
         {
             error = YES;
         }
-        elements[i] = _decodeObjectBinary(self, uid1);
-        if (elements[i] == nil)
+        if (!error)
         {
-            error = YES;
+            elements[i] = _decodeObjectBinary(self, uid1);
+            if (elements[i] == nil)
+            {
+                error = YES;
+            }
         }
         if (error)
         {

@@ -41,3 +41,18 @@
   `test/unarchive-xml-guest.m` exercises both missing entries, the legacy
   exception, and successful decoding after failure. Compile it with guest
   `clang -fno-objc-arc -framework Foundation` and run the resulting guest binary.
+  The decoder releases each owned map exactly once and does not decode an array
+  element whose offset/UID could not be read; a valid archive still decodes after
+  any number of rejected ones.
+- `-[NSDictionary classForCoder]` is implemented on the public base class so
+  every Foundation subclass answers the concrete `NSDictionary` /
+  `NSMutableDictionary` class, as the keyed archiver requires. A bridged Swift
+  `Dictionary` is the measured case: without this it encoded its mangled
+  `_SwiftDeferredNSDictionary` runtime name, which `NSClassFromString` cannot
+  resolve, so a valid archive decoded as nil with Cocoa error 4865.
+  `overlays/tests/unarchive_top_level.swift` covers the round trip.
+- `-[NSNumber _reverseCompare:]` is CoreFoundation's equality direction for an
+  Objective-C number compared against a `CFNumber`; equal values must answer
+  `NSOrderedSame`. Mapping equality to `NSOrderedDescending` made a decoded
+  `CFNumber` report itself unequal to an equal number literal
+  (`NSConstantIntegerNumber`), while the reverse direction compared equal.

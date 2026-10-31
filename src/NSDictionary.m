@@ -365,6 +365,22 @@ OBJC_PROTOCOL_IMPL_PUSH
 }
 OBJC_PROTOCOL_IMPL_POP
 
+// Apple's NSDictionary answers its concrete class here, and the keyed archiver writes
+// that name into the archive's $class. Foundation subclasses that do not override this
+// (measured: the Swift runtime's bridged _SwiftDeferredNSDictionary) otherwise inherit
+// NSObject's default and encode their own -- for Swift, mangled -- class name, which the
+// decoder cannot resolve, so a valid bridged-Swift-Dictionary archive failed as 4865.
+// The CFDictionary implementation keeps its mutability-aware override; this makes the
+// same class substitution available to every other NSDictionary subclass.
+- (Class)classForCoder
+{
+    if ([self isKindOfClass:[NSMutableDictionary class]])
+    {
+        return [NSMutableDictionary class];
+    }
+    return [NSDictionary class];
+}
+
 - (NSString *)descriptionInStringsFileFormat
 {
     NSMutableString *description = [[NSMutableString alloc] init];
