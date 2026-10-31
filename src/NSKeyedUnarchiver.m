@@ -833,19 +833,21 @@ static void setClassForClassName(Class cls, NSString *codedName)
 // which the caller's Swift `throws` wrapper cannot catch. Other exceptions propagate.
 + (id)unarchiveTopLevelObjectWithData:(NSData *)data error:(NSError **)error
 {
+    NSKeyedUnarchiver *unarchiver = nil;
+    id root = nil;
     @try {
-        NSKeyedUnarchiver *unarchiver = [[NSKeyedUnarchiver alloc] initForReadingWithData:data];
+        unarchiver = [[NSKeyedUnarchiver alloc] initForReadingWithData:data];
         if (unarchiver == nil) {
             if (error != NULL) {
                 *error = [NSError errorWithDomain:NSCocoaErrorDomain code:4864 userInfo:nil];
             }
             return nil;
         }
-        id root = [[unarchiver decodeTopLevelObjectForKey:NSKeyedArchiveRootObjectKey error:error] retain];
+        root = [[unarchiver decodeTopLevelObjectForKey:NSKeyedArchiveRootObjectKey error:error] retain];
         [unarchiver finishDecoding];
-        [unarchiver release];
         return [root autorelease];
     } @catch (NSException *exception) {
+        [root release];
         if (![[exception name] isEqual:NSInvalidUnarchiveOperationException]) {
             @throw;
         }
@@ -853,6 +855,8 @@ static void setClassForClassName(Class cls, NSString *codedName)
             *error = [NSError errorWithDomain:NSCocoaErrorDomain code:4864 userInfo:nil];
         }
         return nil;
+    } @finally {
+        [unarchiver release];
     }
 }
 
