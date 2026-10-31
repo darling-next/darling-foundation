@@ -2015,9 +2015,23 @@ static const char* bytesInEncoding(NSString *string, BOOL externalRep, NSStringE
 
 - (void)enumerateLinesUsingBlock:(void (^)(NSString *line, BOOL *stop))block
 {
-    [self enumerateSubstringsInRange:NSMakeRange(0, [self length]) options:NSStringEnumerationByLines usingBlock:^(NSString *substring, NSRange substringRange, NSRange enclosingRange, BOOL *stop) {
-        block(substring, stop);
-    }];
+    if (block == nil)
+    {
+        return;
+    }
+
+    // Tokenizer line-break units include soft wrapping opportunities, whereas
+    // NSString lines use the same hard terminators as -getLineStart:... .
+    NSUInteger length = [self length];
+    NSUInteger position = 0;
+    BOOL stop = NO;
+    while (position < length && !stop)
+    {
+        NSUInteger end, contentsEnd;
+        [self getLineStart:NULL end:&end contentsEnd:&contentsEnd forRange:NSMakeRange(position, 0)];
+        block([self substringWithRange:NSMakeRange(position, contentsEnd - position)], &stop);
+        position = end;
+    }
 }
 
 - (BOOL)writeToURL:(NSURL *)url atomically:(BOOL)useAuxiliaryFile encoding:(NSStringEncoding)enc error:(NSError **)error

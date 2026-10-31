@@ -46,6 +46,7 @@ FOUNDATION_EXPORT NSURLResourceKey const NSURLIsExecutableKey;
 FOUNDATION_EXPORT NSURLResourceKey const NSURLFileSecurityKey;
 FOUNDATION_EXPORT NSURLResourceKey const NSURLIsExcludedFromBackupKey;
 FOUNDATION_EXPORT NSURLResourceKey const NSURLPathKey;
+FOUNDATION_EXPORT NSURLResourceKey const NSURLCanonicalPathKey;
 FOUNDATION_EXPORT NSURLResourceKey const NSURLIsMountTriggerKey;
 FOUNDATION_EXPORT NSURLResourceKey const NSURLFileResourceTypeKey;
 FOUNDATION_EXPORT NSString * const NSURLFileResourceTypeNamedPipe;
