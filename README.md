@@ -33,6 +33,11 @@
 - File removal reports Cocoa file-write errors with the failed path and the
   underlying POSIX error. A missing item remains a failure, reported as
   `NSFileNoSuchFileError`, so callers can distinguish absence from other errors.
+  Root files and symbolic links, including dangling links, use the ordinary
+  removal callback directly. Real directories use postorder physical traversal:
+  removing a link, or a directory containing links, does not remove the links'
+  destinations. This avoids Darwin `nftw` following its root even with
+  `FTW_PHYS`; delegate decisions and error propagation remain on the same route.
 - Symbolic links are created at the requested path and store the requested
   destination verbatim, including relative, unnormalized and dangling
   destinations, and the getter returns a stored destination whole even when it
@@ -81,3 +86,11 @@
   `test/xml-parser-wellformed-guest.m` checks these rejection boundaries and
   usable self-closed/nested documents through both public APIs. Compile it
   with guest `clang -fno-objc-arc -framework Foundation`.
+- `-[NSString commonPrefixWithString:options:]` compares whole extended
+  grapheme clusters and returns the receiver's original UTF-16 spelling.
+  Default comparisons use canonical equivalence; `NSLiteralSearch` preserves
+  encoding differences and `NSCaseInsensitiveSearch` applies case folding.
+  CRLF pairs, surrogate pairs and regional-indicator flags are not split.
+  ASCII comparisons borrow byte storage; Unicode comparisons use native ICU
+  character boundaries with a borrowed or checked contiguous UTF-16 view.
+  Inputs beyond ICU's Unicode iterator limit raise rather than truncate.

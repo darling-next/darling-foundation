@@ -27,6 +27,9 @@
 #import "CFString.h"
 #import "CFStringTokenizer.h"
 #import "NSBOMEncoding.h"
+#import <unicode/unorm.h>
+#import <unicode/ustring.h>
+#import <unicode/ubrk.h>
 #import "NSRangeCheck.h"
 #import "ForFoundationOnly.h"
 
@@ -1905,69 +1908,128 @@ static const char* bytesInEncoding(NSString *string, BOOL externalRep, NSStringE
 
 - (NSString *)commonPrefixWithString:(NSString *)str options:(NSStringCompareOptions)mask
 {
-    // Documentation claims that this only supports NSLiteralSearch and NSCaseInsensitiveSearch however
-    // experementation shows that this does support NSDiacriticInsensitiveSearch, other options seem
-    // to be either nonsenical or no-op'd into NSLiteral searches
     NSUInteger len1 = [self length];
     NSUInteger len2 = [str length];
     if (len1 == 0 || len2 == 0)
     {
         return @"";
     }
-    NSUInteger haystack = MIN(len1, len2);
-    NSUInteger needle = 0;
-    NSUInteger sz = 1024;
-    unichar buffer1[sz];
-    unichar buffer2[sz];
-    BOOL searching = NO;
-    NSUInteger found = 0;
-    while (needle < haystack && searching)
+    if (self == str)
     {
-        NSRange search = NSMakeRange(needle, MIN(MIN(len1 - needle, sz), MIN(len2 - needle, sz)));
-        [self getCharacters:buffer1 range:search];
-        [str getCharacters:buffer2 range:search];
-        for (NSUInteger idx = 0; idx < search.length; idx++)
-        {
-            if ((mask & NSCaseInsensitiveSearch) != 0)
-            {
-                if ((mask & NSDiacriticInsensitiveSearch) != 0)
-                {
-                    UTF32Char c1[8] = {0};
-                    UTF32Char c2[8] = {0};
-                    CFUniCharDecomposeCharacter(buffer1[0], &c1[0], 8);
-                    CFUniCharDecomposeCharacter(buffer2[0], &c2[0], 8);
-                    if (u_tolower(c1[0]) != u_tolower(c2[0]))
-                    {
-                        searching = NO;
-                        break;
-                    }
-                }
-                else if (u_tolower(buffer1[0]) != u_tolower(buffer2[0]))
-                {
-                    searching = NO;
-                    break;
-                }
-            }
-            else
-            {
-                if (buffer1[idx] != buffer2[idx])
-                {
-                    searching = NO;
-                    break;
-                }
-            }
-            found = needle + idx;
-        }
-        needle += sz;
+        return [self substringWithRange:NSMakeRange(0, len1)];
     }
-    if (found == 0)
+
+    BOOL insensitive = (mask & NSCaseInsensitiveSearch) != 0;
+    BOOL literal = (mask & NSLiteralSearch) != 0;
+    const unsigned char *ascii1 = (const unsigned char *)CFStringGetCStringPtr((CFStringRef)self, kCFStringEncodingASCII);
+    const unsigned char *ascii2 = (const unsigned char *)CFStringGetCStringPtr((CFStringRef)str, kCFStringEncodingASCII);
+    NSUInteger found = 0;
+    if (ascii1 != NULL && ascii2 != NULL)
     {
-        return @"";
+        NSUInteger limit = MIN(len1, len2);
+        while (found < limit)
+        {
+            unsigned char c1 = ascii1[found];
+            unsigned char c2 = ascii2[found];
+            if (insensitive)
+            {
+                if (c1 >= 'A' && c1 <= 'Z') c1 += 'a' - 'A';
+                if (c2 >= 'A' && c2 <= 'Z') c2 += 'a' - 'A';
+            }
+            if (c1 != c2) break;
+            if (c1 == '\r')
+            {
+                BOOL pair1 = found + 1 < len1 && ascii1[found + 1] == '\n';
+                BOOL pair2 = found + 1 < len2 && ascii2[found + 1] == '\n';
+                if (pair1 != pair2) break;
+                if (pair1)
+                {
+                    found += 2;
+                    continue;
+                }
+            }
+            ++found;
+        }
     }
     else
     {
-        return [self substringWithRange:NSMakeRange(0, found)];
+        // Corelibs NSString.commonPrefix iterates extended grapheme clusters
+        // and keeps the receiver's spelling. Use native ICU character breaks:
+        // the older CF composed-character ranges do not cover CRLF or flags.
+        // Apportable and the sibling fork retain the disabled UTF-16 scan.
+        if (len1 > INT32_MAX || len2 > INT32_MAX)
+        {
+            [NSException raise:NSInvalidArgumentException format:@"Common-prefix text exceeds the ICU iterator limit"];
+        }
+        UniChar stack1[64];
+        UniChar stack2[64];
+        UniChar *allocated1 = NULL;
+        UniChar *allocated2 = NULL;
+        const UniChar *chars1 = CFStringGetCharactersPtr((CFStringRef)self);
+        const UniChar *chars2 = CFStringGetCharactersPtr((CFStringRef)str);
+        if (chars1 == NULL)
+        {
+            chars1 = len1 <= 64 ? stack1 : (allocated1 = malloc(sizeof(UniChar) * len1));
+            if (chars1 == NULL)
+            {
+                [NSException raise:NSMallocException format:@"Unable to compare common-prefix characters"];
+            }
+            CFStringGetCharacters((CFStringRef)self, CFRangeMake(0, len1), (UniChar *)chars1);
+        }
+        if (chars2 == NULL)
+        {
+            chars2 = len2 <= 64 ? stack2 : (allocated2 = malloc(sizeof(UniChar) * len2));
+            if (chars2 == NULL)
+            {
+                free(allocated1);
+                [NSException raise:NSMallocException format:@"Unable to compare common-prefix characters"];
+            }
+            CFStringGetCharacters((CFStringRef)str, CFRangeMake(0, len2), (UniChar *)chars2);
+        }
+        UErrorCode status = U_ZERO_ERROR;
+        UBreakIterator *iterator1 = ubrk_open(UBRK_CHARACTER, "root", chars1, (int32_t)len1, &status);
+        UBreakIterator *iterator2 = U_SUCCESS(status) ? ubrk_open(UBRK_CHARACTER, "root", chars2, (int32_t)len2, &status) : NULL;
+        if (U_SUCCESS(status))
+        {
+            int32_t start1 = ubrk_first(iterator1);
+            int32_t start2 = ubrk_first(iterator2);
+            int32_t end1 = ubrk_next(iterator1);
+            int32_t end2 = ubrk_next(iterator2);
+            while (end1 != UBRK_DONE && end2 != UBRK_DONE)
+            {
+                int32_t count1 = end1 - start1;
+                int32_t count2 = end2 - start2;
+                int32_t comparison;
+                if (count1 == count2 && memcmp(chars1 + start1, chars2 + start2, sizeof(UniChar) * count1) == 0)
+                {
+                    comparison = 0;
+                }
+                else if (literal)
+                {
+                    comparison = insensitive ? u_strCaseCompare(chars1 + start1, count1, chars2 + start2, count2, U_FOLD_CASE_DEFAULT, &status) : 1;
+                }
+                else
+                {
+                    comparison = unorm_compare(chars1 + start1, count1, chars2 + start2, count2, insensitive ? U_COMPARE_IGNORE_CASE : 0, &status);
+                }
+                if (U_FAILURE(status) || comparison != 0) break;
+                found = end1;
+                start1 = end1;
+                start2 = end2;
+                end1 = ubrk_next(iterator1);
+                end2 = ubrk_next(iterator2);
+            }
+        }
+        if (iterator1 != NULL) ubrk_close(iterator1);
+        if (iterator2 != NULL) ubrk_close(iterator2);
+        free(allocated1);
+        free(allocated2);
+        if (U_FAILURE(status))
+        {
+            [NSException raise:NSInternalInconsistencyException format:@"Common-prefix Unicode comparison failed: %s", u_errorName(status)];
+        }
     }
+    return found == 0 ? @"" : [self substringWithRange:NSMakeRange(0, found)];
 }
 
 
