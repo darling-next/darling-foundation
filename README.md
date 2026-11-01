@@ -94,3 +94,13 @@
   ASCII comparisons borrow byte storage; Unicode comparisons use native ICU
   character boundaries with a borrowed or checked contiguous UTF-16 view.
   Inputs beyond ICU's Unicode iterator limit raise rather than truncate.
+- `NSISO8601DateFormatter` uses the native CF ISO formatter with an ISO week
+  calendar, fixed POSIX locale and configurable timezone/options. Cached
+  formatters are invalidated on value changes; copies own independent caches.
+  Formatting and parsing retain the real calendar, week-year, ordinal,
+  fractional-second and offset semantics of the vendored corelibs provider.
+  Keyed archives preserve these settings through the real `NSTimeZone` codec;
+  wrong-type decoded timezone values reject the formatter.
+  `NSTimeZone` uses the `NS.name` / `NS.data` archive contract and native
+  class-cluster construction; concrete immutable timezones implement copying.
+  These providers do not implement the archiver engine's missing secure mode.
